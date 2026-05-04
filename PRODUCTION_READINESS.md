@@ -11,8 +11,8 @@ Status values: `todo`, `in_progress`, `blocked`, `review`, `done`.
 | 5 | Database migrations, backup, and restore | done | 794506d | Clean migrations, backup script, restore runbook |
 | 6 | Observability | done | 784b9c9 | Structured logs, request ids, metrics, error tracking hooks |
 | 7 | Expanded test coverage | done | 2a4bfaf | Critical business flows and negative paths covered |
-| 8 | CI/CD | done | pending | Automated tests, builds, scans, and deploy gates |
-| 9 | Production deploy runbook | todo | pending | Real deploy checklist and smoke test path documented |
+| 8 | CI/CD | done | 1399685 | Automated tests, builds, scans, and deploy gates |
+| 9 | Production deploy runbook | done | pending | Real deploy checklist and smoke test path documented |
 | 10 | POS business production features | todo | pending | Shifts, payments, refunds, discounts, reports, device agent protocol |
 | 11 | Operator documentation | todo | pending | Runbooks for deploy, backup, restore, incident response, rollback |
 
