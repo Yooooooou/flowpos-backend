@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     auto_create_tables: bool = True
     allow_sqlite_in_production: bool = False
     backend_cors_origins: str = "http://localhost:3000,http://localhost:5173"
+    docs_enabled: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -36,6 +37,11 @@ class Settings(BaseSettings):
             raise ValueError("AUTO_CREATE_TABLES must be false in production; use Alembic migrations")
         if self.database_url.startswith("sqlite") and not self.allow_sqlite_in_production:
             raise ValueError("SQLite is not allowed in production unless explicitly enabled")
+        origins = self.cors_origins
+        if not origins or "*" in origins:
+            raise ValueError("BACKEND_CORS_ORIGINS must list explicit production origins")
+        if any("localhost" in origin or "127.0.0.1" in origin for origin in origins):
+            raise ValueError("BACKEND_CORS_ORIGINS must not include local development origins in production")
         return self
 
 

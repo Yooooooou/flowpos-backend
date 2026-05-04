@@ -23,67 +23,75 @@ async def lifespan(_: FastAPI):
     yield
     await websocket_manager.shutdown()
 
-app = FastAPI(
-    title=settings.app_name,
-    version="1.0.0",
-    description="Flow-POS API for waiter-kitchen order processing and cafe operations.",
-    lifespan=lifespan,
-)
+def create_app() -> FastAPI:
+    docs_url = "/docs" if settings.docs_enabled else None
+    redoc_url = "/redoc" if settings.docs_enabled else None
+    openapi_url = "/openapi.json" if settings.docs_enabled else None
+    application = FastAPI(
+        title=settings.app_name,
+        version="1.0.0",
+        description="Flow-POS API for waiter-kitchen order processing and cafe operations.",
+        lifespan=lifespan,
+        docs_url=docs_url,
+        redoc_url=redoc_url,
+        openapi_url=openapi_url,
+    )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-app.include_router(auth.router)
-app.include_router(users.router)
-app.include_router(tables.router)
-app.include_router(menu.router)
-app.include_router(orders.router)
-app.include_router(analytics.router)
-app.include_router(peripherals.router)
+    application.include_router(auth.router)
+    application.include_router(users.router)
+    application.include_router(tables.router)
+    application.include_router(menu.router)
+    application.include_router(orders.router)
+    application.include_router(analytics.router)
+    application.include_router(peripherals.router)
+
+    @application.get("/health", tags=["system"])
+    def health() -> dict[str, str]:
+        return {"status": "ok", "service": settings.app_name}
+
+    @application.get("/health/ready", tags=["system"])
+    async def readiness(db: Session = Depends(get_db)) -> dict[str, str]:
+        db.execute(text("SELECT 1"))
+        if settings.redis_url and websocket_manager.redis is not None:
+            await websocket_manager.redis.ping()
+        return {"status": "ready"}
+
+    @application.websocket("/ws/orders")
+    async def orders_socket(
+        websocket: WebSocket,
+        token: str = Query(...),
+        db: Session = Depends(get_db),
+    ) -> None:
+        subject = decode_access_token(token)
+        if subject is None:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        user = db.get(User, int(subject))
+        if user is None or not user.is_active:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        group = user.role.value
+        if user.role == UserRole.waiter:
+            group = f"waiter:{user.id}"
+
+        await websocket_manager.connect(group, websocket)
+        try:
+            await websocket.send_json({"type": "connected", "group": group})
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            websocket_manager.disconnect(group, websocket)
+    return application
 
 
-@app.get("/health", tags=["system"])
-def health() -> dict[str, str]:
-    return {"status": "ok", "service": settings.app_name}
-
-
-@app.get("/health/ready", tags=["system"])
-async def readiness(db: Session = Depends(get_db)) -> dict[str, str]:
-    db.execute(text("SELECT 1"))
-    if settings.redis_url and websocket_manager.redis is not None:
-        await websocket_manager.redis.ping()
-    return {"status": "ready"}
-
-
-@app.websocket("/ws/orders")
-async def orders_socket(
-    websocket: WebSocket,
-    token: str = Query(...),
-    db: Session = Depends(get_db),
-) -> None:
-    subject = decode_access_token(token)
-    if subject is None:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-
-    user = db.get(User, int(subject))
-    if user is None or not user.is_active:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-
-    group = user.role.value
-    if user.role == UserRole.waiter:
-        group = f"waiter:{user.id}"
-
-    await websocket_manager.connect(group, websocket)
-    try:
-        await websocket.send_json({"type": "connected", "group": group})
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        websocket_manager.disconnect(group, websocket)
+app = create_app()
