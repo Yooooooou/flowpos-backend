@@ -12,8 +12,8 @@ Status values: `todo`, `in_progress`, `blocked`, `review`, `done`.
 | 6 | Observability | done | 784b9c9 | Structured logs, request ids, metrics, error tracking hooks |
 | 7 | Expanded test coverage | done | 2a4bfaf | Critical business flows and negative paths covered |
 | 8 | CI/CD | done | 1399685 | Automated tests, builds, scans, and deploy gates |
-| 9 | Production deploy runbook | done | pending | Real deploy checklist and smoke test path documented |
-| 10 | POS business production features | todo | pending | Shifts, payments, refunds, discounts, reports, device agent protocol |
+| 9 | Production deploy runbook | done | 6b9394f | Real deploy checklist and smoke test path documented |
+| 10 | POS business production features | done | pending | Shifts, payments, refunds, discounts, reports, device agent protocol |
 | 11 | Operator documentation | todo | pending | Runbooks for deploy, backup, restore, incident response, rollback |
 
 ## Stage 1 Done Criteria
