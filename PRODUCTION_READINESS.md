@@ -14,7 +14,7 @@ Status values: `todo`, `in_progress`, `blocked`, `review`, `done`.
 | 8 | CI/CD | done | 1399685 | Automated tests, builds, scans, and deploy gates |
 | 9 | Production deploy runbook | done | 6b9394f | Real deploy checklist and smoke test path documented |
 | 10 | POS business production features | done | cdcf044 | Shifts, payments, refunds, discounts, reports, device agent protocol |
-| 11 | Operator documentation | done | pending | Runbooks for deploy, backup, restore, incident response, rollback |
+| 11 | Operator documentation | done | 9457b0b | Runbooks for deploy, backup, restore, incident response, rollback |
 
 ## Stage 1 Done Criteria
 
