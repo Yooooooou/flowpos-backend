@@ -43,6 +43,30 @@ def upgrade() -> None:
             sa.Column("is_active", sa.Boolean(), nullable=False),
             sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         )
+
+    if not _has_table(inspector, "auth_sessions"):
+        op.create_table(
+            "auth_sessions",
+            sa.Column("id", sa.Integer(), primary_key=True),
+            sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False, index=True),
+            sa.Column("refresh_token_hash", sa.String(64), nullable=False, unique=True, index=True),
+            sa.Column("user_agent", sa.String(255)),
+            sa.Column("ip_address", sa.String(80)),
+            sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False, index=True),
+            sa.Column("revoked_at", sa.DateTime(timezone=True), index=True),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        )
+    if not _has_table(inspector, "auth_audit_events"):
+        op.create_table(
+            "auth_audit_events",
+            sa.Column("id", sa.Integer(), primary_key=True),
+            sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id"), index=True),
+            sa.Column("username", sa.String(80), index=True),
+            sa.Column("event_type", sa.String(80), nullable=False, index=True),
+            sa.Column("ip_address", sa.String(80)),
+            sa.Column("user_agent", sa.String(255)),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), index=True),
+        )
     if not _has_table(inspector, "tables"):
         op.create_table(
             "tables",
@@ -160,4 +184,6 @@ def downgrade() -> None:
     op.drop_table("menu_items")
     op.drop_table("menu_categories")
     op.drop_table("tables")
+    op.drop_table("auth_audit_events")
+    op.drop_table("auth_sessions")
     op.drop_table("users")

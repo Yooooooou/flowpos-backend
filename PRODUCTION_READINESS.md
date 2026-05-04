@@ -5,8 +5,8 @@ Status values: `todo`, `in_progress`, `blocked`, `review`, `done`.
 | Stage | Scope | Status | Rollback point | Verification |
 | --- | --- | --- | --- | --- |
 | 1 | Production criteria and progress tracker | done | b9f43f9 | Tracker exists and defines done criteria |
-| 2 | Safe production config and demo seed separation | done | pending | Unsafe production settings fail fast; tests pass |
-| 3 | Auth hardening and access-control tests | todo | pending | Login abuse is limited; token lifecycle and RBAC tests pass |
+| 2 | Safe production config and demo seed separation | done | e88e71f | Unsafe production settings fail fast; tests pass |
+| 3 | Auth hardening and access-control tests | done | pending | Login abuse is limited; token lifecycle and RBAC tests pass |
 | 4 | API and Docker hardening | todo | pending | Non-root API image, healthcheck, docs gating, CORS checks |
 | 5 | Database migrations, backup, and restore | todo | pending | Clean migrations, backup script, restore runbook |
 | 6 | Observability | todo | pending | Structured logs, request ids, metrics, error tracking hooks |

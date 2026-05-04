@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-in-production"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24
+    refresh_token_expire_minutes: int = 60 * 24 * 30
+    login_rate_limit_attempts: int = 5
+    login_rate_limit_window_seconds: int = 60
     database_url: str = "sqlite:///./flowpos.db"
     redis_url: str | None = None
     auto_create_tables: bool = True

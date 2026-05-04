@@ -1,4 +1,7 @@
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -17,12 +20,20 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def create_refresh_token() -> str:
+    return secrets.token_urlsafe(48)
+
+
 def create_access_token(subject: str, expires_delta: timedelta | None = None) -> str:
     settings = get_settings()
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
     )
-    payload = {"sub": subject, "exp": expire}
+    payload = {"sub": subject, "exp": expire, "jti": str(uuid4()), "typ": "access"}
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
