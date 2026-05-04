@@ -1,11 +1,12 @@
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import Depends, FastAPI, Query, Response, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.observability import configure_logging, observability_middleware, render_metrics
 from app.core.security import decode_access_token
 from app.db.session import Base, engine, get_db
 from app.models import User, UserRole
@@ -13,6 +14,7 @@ from app.realtime import manager as websocket_manager
 from app.routers import analytics, auth, menu, orders, peripherals, tables, users
 
 settings = get_settings()
+configure_logging()
 
 
 @asynccontextmanager
@@ -44,6 +46,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    application.middleware("http")(observability_middleware)
 
     application.include_router(auth.router)
     application.include_router(users.router)
@@ -63,6 +66,10 @@ def create_app() -> FastAPI:
         if settings.redis_url and websocket_manager.redis is not None:
             await websocket_manager.redis.ping()
         return {"status": "ready"}
+
+    @application.get("/metrics", tags=["system"])
+    def metrics() -> Response:
+        return Response(render_metrics(), media_type="text/plain; version=0.0.4")
 
     @application.websocket("/ws/orders")
     async def orders_socket(
