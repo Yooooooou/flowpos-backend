@@ -7,8 +7,8 @@ Status values: `todo`, `in_progress`, `blocked`, `review`, `done`.
 | 1 | Production criteria and progress tracker | done | b9f43f9 | Tracker exists and defines done criteria |
 | 2 | Safe production config and demo seed separation | done | e88e71f | Unsafe production settings fail fast; tests pass |
 | 3 | Auth hardening and access-control tests | done | 0bce1ba | Login abuse is limited; token lifecycle and RBAC tests pass |
-| 4 | API and Docker hardening | done | pending | Non-root API image, healthcheck, docs gating, CORS checks |
-| 5 | Database migrations, backup, and restore | todo | pending | Clean migrations, backup script, restore runbook |
+| 4 | API and Docker hardening | done | cf65075 | Non-root API image, healthcheck, docs gating, CORS checks |
+| 5 | Database migrations, backup, and restore | done | pending | Clean migrations, backup script, restore runbook |
 | 6 | Observability | todo | pending | Structured logs, request ids, metrics, error tracking hooks |
 | 7 | Expanded test coverage | todo | pending | Critical business flows and negative paths covered |
 | 8 | CI/CD | todo | pending | Automated tests, builds, scans, and deploy gates |

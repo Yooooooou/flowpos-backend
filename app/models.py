@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -95,6 +95,7 @@ class AuthAuditEvent(Base):
 
 class CafeTable(Base):
     __tablename__ = "tables"
+    __table_args__ = (CheckConstraint("seats > 0", name="ck_tables_seats_positive"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     number: Mapped[str] = mapped_column(String(20), unique=True, index=True)
@@ -118,6 +119,10 @@ class MenuCategory(Base):
 
 class MenuItem(Base):
     __tablename__ = "menu_items"
+    __table_args__ = (
+        CheckConstraint("price > 0", name="ck_menu_items_price_positive"),
+        CheckConstraint("preparation_time_minutes > 0", name="ck_menu_items_prep_positive"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     category_id: Mapped[int] = mapped_column(ForeignKey("menu_categories.id"))
@@ -134,7 +139,10 @@ class MenuItem(Base):
 
 class Order(Base):
     __tablename__ = "orders"
-    __table_args__ = (UniqueConstraint("waiter_id", "client_request_id", name="uq_orders_waiter_client_request"),)
+    __table_args__ = (
+        UniqueConstraint("waiter_id", "client_request_id", name="uq_orders_waiter_client_request"),
+        CheckConstraint("total_amount >= 0", name="ck_orders_total_non_negative"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     table_id: Mapped[int] = mapped_column(ForeignKey("tables.id"), index=True)
@@ -165,6 +173,11 @@ class Order(Base):
 
 class OrderItem(Base):
     __tablename__ = "order_items"
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="ck_order_items_quantity_positive"),
+        CheckConstraint("unit_price > 0", name="ck_order_items_unit_price_positive"),
+        CheckConstraint("line_total > 0", name="ck_order_items_line_total_positive"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), index=True)

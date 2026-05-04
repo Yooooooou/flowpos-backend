@@ -75,6 +75,7 @@ def upgrade() -> None:
             sa.Column("seats", sa.Integer(), nullable=False),
             sa.Column("status", table_status, nullable=False),
             sa.Column("location", sa.String(120)),
+            sa.CheckConstraint("seats > 0", name="ck_tables_seats_positive"),
         )
     if not _has_table(inspector, "menu_categories"):
         op.create_table(
@@ -95,6 +96,8 @@ def upgrade() -> None:
             sa.Column("price", sa.Numeric(10, 2), nullable=False),
             sa.Column("preparation_time_minutes", sa.Integer(), nullable=False),
             sa.Column("is_available", sa.Boolean(), nullable=False),
+            sa.CheckConstraint("price > 0", name="ck_menu_items_price_positive"),
+            sa.CheckConstraint("preparation_time_minutes > 0", name="ck_menu_items_prep_positive"),
         )
     elif not _has_column(inspector, "menu_items", "barcode"):
         op.add_column("menu_items", sa.Column("barcode", sa.String(80), nullable=True))
@@ -116,6 +119,7 @@ def upgrade() -> None:
             sa.Column("ready_at", sa.DateTime(timezone=True)),
             sa.Column("served_at", sa.DateTime(timezone=True)),
             sa.Column("paid_at", sa.DateTime(timezone=True)),
+            sa.CheckConstraint("total_amount >= 0", name="ck_orders_total_non_negative"),
             sa.UniqueConstraint("waiter_id", "client_request_id", name="uq_orders_waiter_client_request"),
         )
     else:
@@ -136,6 +140,9 @@ def upgrade() -> None:
             sa.Column("unit_price", sa.Numeric(10, 2), nullable=False),
             sa.Column("line_total", sa.Numeric(10, 2), nullable=False),
             sa.Column("note", sa.Text()),
+            sa.CheckConstraint("quantity > 0", name="ck_order_items_quantity_positive"),
+            sa.CheckConstraint("unit_price > 0", name="ck_order_items_unit_price_positive"),
+            sa.CheckConstraint("line_total > 0", name="ck_order_items_line_total_positive"),
         )
     if not _has_table(inspector, "order_events"):
         op.create_table(
