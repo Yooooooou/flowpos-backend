@@ -11,7 +11,7 @@ from app.core.security import decode_access_token
 from app.db.session import Base, engine, get_db
 from app.models import User, UserRole
 from app.realtime import manager as websocket_manager
-from app.routers import analytics, auth, menu, orders, peripherals, tables, users
+from app.routers import analytics, auth, menu, orders, peripherals, pos, tables, users
 
 settings = get_settings()
 configure_logging()
@@ -53,6 +53,7 @@ def create_app() -> FastAPI:
     application.include_router(tables.router)
     application.include_router(menu.router)
     application.include_router(orders.router)
+    application.include_router(pos.router)
     application.include_router(analytics.router)
     application.include_router(peripherals.router)
 

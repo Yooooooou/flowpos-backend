@@ -16,12 +16,13 @@
 5. Set `DOCS_ENABLED=false` unless API docs are intentionally protected elsewhere.
 6. Set `BACKEND_CORS_ORIGINS` to the real frontend origin.
 7. Update `Caddyfile` with the real domain and HTTPS configuration.
-8. Run `docker compose config --quiet`.
-9. Run `docker compose build`.
-10. Run `docker compose up -d db redis`.
-11. Run `docker compose run --rm api alembic upgrade head`.
-12. Create the first manager user with an approved one-off admin command or a temporary sealed seed script.
-13. Run `docker compose up -d`.
+8. Set `APP_ENV_FILE=.env`.
+9. Run `docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet`.
+10. Run `docker compose -f docker-compose.yml -f docker-compose.prod.yml build`.
+11. Run `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d db redis`.
+12. Run `docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm api alembic upgrade head`.
+13. Create the first manager user with `python -m app.admin create-manager --username <name> --full-name "<name>"`.
+14. Run `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`.
 
 ## Smoke Test
 

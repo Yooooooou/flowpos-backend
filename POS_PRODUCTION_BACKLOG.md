@@ -4,7 +4,7 @@ These items are required before Flow-POS can be considered a full production POS
 
 ## Payments
 
-Status: `todo`
+Status: `implemented`
 
 Acceptance criteria:
 
@@ -15,7 +15,7 @@ Acceptance criteria:
 
 ## Refunds And Voids
 
-Status: `todo`
+Status: `implemented`
 
 Acceptance criteria:
 
@@ -26,7 +26,7 @@ Acceptance criteria:
 
 ## Discounts, Taxes, And Service Fees
 
-Status: `todo`
+Status: `partially_implemented`
 
 Acceptance criteria:
 
@@ -35,9 +35,14 @@ Acceptance criteria:
 - Manager-only permissions control manual discounts.
 - Receipt payload includes the full total breakdown.
 
+Remaining:
+
+- Item-level discounts.
+- Receipt payload expansion in the physical device agent.
+
 ## Staff Shifts
 
-Status: `todo`
+Status: `implemented`
 
 Acceptance criteria:
 
@@ -48,7 +53,7 @@ Acceptance criteria:
 
 ## Device Agent Protocol
 
-Status: `todo`
+Status: `implemented`
 
 Acceptance criteria:
 
@@ -59,7 +64,7 @@ Acceptance criteria:
 
 ## Inventory And Availability
 
-Status: `todo`
+Status: `partially_implemented`
 
 Acceptance criteria:
 
@@ -67,9 +72,13 @@ Acceptance criteria:
 - Optional stock count can decrement when an order is paid.
 - Low-stock items appear in manager reporting.
 
+Remaining:
+
+- Optional stock counts and low-stock reporting.
+
 ## Reporting
 
-Status: `todo`
+Status: `partially_implemented`
 
 Acceptance criteria:
 
@@ -78,3 +87,8 @@ Acceptance criteria:
 - Payment method report.
 - Refund report.
 - Popular item report with date range filters.
+
+Remaining:
+
+- Date range filters.
+- Separate daily sales report endpoint.

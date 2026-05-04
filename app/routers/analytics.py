@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.deps import require_roles
-from app.models import MenuItem, Order, OrderItem, OrderStatus, User, UserRole
+from app.models import MenuItem, Order, OrderItem, OrderStatus, Payment, Refund, User, UserRole
 from app.schemas import AnalyticsSummary
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -24,7 +24,14 @@ def summary(
     )
     completed_orders = db.scalar(select(func.count(Order.id)).where(Order.status.in_([OrderStatus.paid, OrderStatus.cancelled])))
     paid_orders = db.scalar(select(func.count(Order.id)).where(Order.status == OrderStatus.paid))
-    revenue = db.scalar(select(func.coalesce(func.sum(Order.total_amount), 0)).where(Order.status == OrderStatus.paid))
+    payment_revenue = db.scalar(select(func.coalesce(func.sum(Payment.final_amount), 0)))
+    legacy_revenue = db.scalar(select(func.coalesce(func.sum(Order.total_amount), 0)).where(Order.status == OrderStatus.paid))
+    revenue = payment_revenue or legacy_revenue
+    refunds_total = db.scalar(select(func.coalesce(func.sum(Refund.amount), 0)))
+    payment_rows = db.execute(
+        select(Payment.method, func.count(Payment.id).label("count"), func.coalesce(func.sum(Payment.final_amount), 0).label("total"))
+        .group_by(Payment.method)
+    ).all()
 
     ready_orders = list(
         db.scalars(select(Order).where(Order.ready_at.is_not(None), Order.created_at.is_not(None)))
@@ -91,4 +98,6 @@ def summary(
         popular_items=popular_items,
         peak_hours=peak_hours,
         staff_productivity=staff_productivity,
+        payments=[{"method": row.method.value, "count": int(row.count), "total": str(row.total)} for row in payment_rows],
+        refunds_total=Decimal(refunds_total or 0),
     )

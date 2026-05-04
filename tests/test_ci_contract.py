@@ -8,4 +8,7 @@ def test_ci_workflow_runs_core_checks() -> None:
     assert "python -m alembic upgrade head" in workflow
     assert "npm run build" in workflow
     assert "docker compose config --quiet" in workflow
+    assert "pip-audit" in workflow
+    assert "npm audit" in workflow
+    assert "postgres:" in workflow
     assert "docker build -t flowpos-api:test ." in workflow

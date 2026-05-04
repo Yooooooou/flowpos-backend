@@ -37,11 +37,17 @@ def create_access_token(subject: str, expires_delta: timedelta | None = None) ->
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
-def decode_access_token(token: str) -> str | None:
+def decode_access_token_payload(token: str) -> dict | None:
     settings = get_settings()
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-        subject = payload.get("sub")
-        return str(subject) if subject is not None else None
+        return jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
     except JWTError:
         return None
+
+
+def decode_access_token(token: str) -> str | None:
+    payload = decode_access_token_payload(token)
+    if payload is None:
+        return None
+    subject = payload.get("sub")
+    return str(subject) if subject is not None else None

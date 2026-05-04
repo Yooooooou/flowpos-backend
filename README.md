@@ -19,6 +19,8 @@ The backend is built with FastAPI, SQLAlchemy, Alembic, PostgreSQL, Redis, JWT a
 - Manager analytics: active orders, revenue, average preparation time, customer wait time, peak hours, staff productivity, and popular items.
 - Frontend-friendly board endpoints for waiter and kitchen screens.
 - Peripheral support: receipt printers, cash drawers, barcode scanners, and print job queue.
+- Production POS workflows: staff shifts, payments, manager discounts, refunds, and shift reports.
+- Device-agent print workflow with dedicated agent tokens and job leases.
 - Barcode lookup for menu items.
 - Alembic database migrations.
 - Docker Compose production stack with PostgreSQL, Redis, FastAPI API, and Caddy reverse proxy.

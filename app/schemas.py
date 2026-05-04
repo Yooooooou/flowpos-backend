@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import OrderPriority, OrderStatus, PeripheralType, PrintJobStatus, TableStatus, UserRole
+from app.models import DiscountType, OrderPriority, OrderStatus, PaymentMethod, PeripheralType, PrintJobStatus, ShiftStatus, TableStatus, UserRole
 
 
 class Token(BaseModel):
@@ -231,6 +231,8 @@ class AnalyticsSummary(BaseModel):
     popular_items: list[dict]
     peak_hours: list[dict]
     staff_productivity: list[dict]
+    payments: list[dict] = []
+    refunds_total: Decimal = Decimal("0.00")
 
 
 class DashboardMetric(BaseModel):
@@ -304,3 +306,120 @@ class PrintJobRead(BaseModel):
     processed_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ShiftOpen(BaseModel):
+    opening_cash_amount: Decimal = Field(default=Decimal("0.00"), ge=0, decimal_places=2)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class ShiftClose(BaseModel):
+    closing_cash_amount: Decimal = Field(ge=0, decimal_places=2)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class ShiftRead(BaseModel):
+    id: int
+    opened_by_id: int
+    closed_by_id: int | None = None
+    status: ShiftStatus
+    opening_cash_amount: Decimal
+    closing_cash_amount: Decimal | None = None
+    opened_at: datetime
+    closed_at: datetime | None = None
+    note: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DiscountCreate(BaseModel):
+    discount_type: DiscountType = DiscountType.amount
+    value: Decimal = Field(gt=0, decimal_places=2)
+    reason: str = Field(min_length=3, max_length=255)
+
+
+class DiscountRead(BaseModel):
+    id: int
+    order_id: int
+    created_by_id: int
+    discount_type: DiscountType
+    value: Decimal
+    reason: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PaymentCreate(BaseModel):
+    method: PaymentMethod
+    amount_received: Decimal = Field(gt=0, decimal_places=2)
+    tax_amount: Decimal = Field(default=Decimal("0.00"), ge=0, decimal_places=2)
+    service_fee_amount: Decimal = Field(default=Decimal("0.00"), ge=0, decimal_places=2)
+    external_reference: str | None = Field(default=None, max_length=160)
+
+
+class PaymentRead(BaseModel):
+    id: int
+    order_id: int
+    shift_id: int
+    created_by_id: int
+    method: PaymentMethod
+    external_reference: str | None = None
+    subtotal_amount: Decimal
+    discount_amount: Decimal
+    tax_amount: Decimal
+    service_fee_amount: Decimal
+    final_amount: Decimal
+    amount_received: Decimal
+    change_due: Decimal
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RefundCreate(BaseModel):
+    amount: Decimal = Field(gt=0, decimal_places=2)
+    reason: str = Field(min_length=3, max_length=255)
+
+
+class RefundRead(BaseModel):
+    id: int
+    payment_id: int
+    created_by_id: int
+    amount: Decimal
+    reason: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ShiftReport(BaseModel):
+    shift_id: int
+    status: ShiftStatus
+    payments_total: Decimal
+    refunds_total: Decimal
+    net_total: Decimal
+    payments_by_method: list[dict]
+    orders_paid: int
+
+
+class DeviceAgentTokenCreate(BaseModel):
+    device_id: int
+    name: str = Field(min_length=2, max_length=120)
+
+
+class DeviceAgentTokenCreated(BaseModel):
+    id: int
+    device_id: int
+    name: str
+    token: str
+
+
+class AgentJobClaim(BaseModel):
+    lease_seconds: int = Field(default=60, ge=10, le=600)
+
+
+class AgentJobLeaseRead(BaseModel):
+    job: PrintJobRead
+    lease_token: str
+    expires_at: datetime

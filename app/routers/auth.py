@@ -1,12 +1,20 @@
-from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.auth_state import check_login_rate_limit, clear_login_failures, revoke_access_token
 from app.core.config import get_settings
-from app.core.security import create_access_token, create_refresh_token, get_password_hash, hash_token, verify_password
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_access_token_payload,
+    get_password_hash,
+    hash_token,
+    verify_password,
+)
 from app.db.session import get_db
 from app.deps import get_current_user
 from app.models import AuthAuditEvent, AuthSession, User
@@ -14,7 +22,7 @@ from app.schemas import ChangePasswordRequest, LoginRequest, RefreshTokenRequest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
-_login_failures: dict[str, deque[datetime]] = defaultdict(deque)
+optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 
 def _client_ip(request: Request) -> str:
@@ -32,21 +40,22 @@ def _rate_limit_key(request: Request, username: str) -> str:
 
 def _check_login_rate_limit(request: Request, username: str) -> None:
     key = _rate_limit_key(request, username)
-    now = datetime.now(timezone.utc)
-    window_started_at = now - timedelta(seconds=settings.login_rate_limit_window_seconds)
-    failures = _login_failures[key]
-    while failures and failures[0] < window_started_at:
-        failures.popleft()
-    if len(failures) >= settings.login_rate_limit_attempts:
+    allowed = check_login_rate_limit(
+        key,
+        settings.login_rate_limit_attempts,
+        settings.login_rate_limit_window_seconds,
+    )
+    if not allowed:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many login attempts")
 
 
 def _record_failed_login(request: Request, username: str) -> None:
-    _login_failures[_rate_limit_key(request, username)].append(datetime.now(timezone.utc))
+    # The rate-limit counter is incremented before authentication to cover malformed requests too.
+    return None
 
 
 def _clear_failed_logins(request: Request, username: str) -> None:
-    _login_failures.pop(_rate_limit_key(request, username), None)
+    clear_login_failures(_rate_limit_key(request, username))
 
 
 def _audit_auth_event(db: Session, request: Request, event_type: str, username: str | None, user: User | None) -> None:
@@ -146,13 +155,24 @@ def refresh_token(payload: RefreshTokenRequest, request: Request, db: Session = 
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(payload: RefreshTokenRequest, request: Request, db: Session = Depends(get_db)) -> None:
+def logout(
+    payload: RefreshTokenRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    access_token: str | None = Depends(optional_oauth2_scheme),
+) -> None:
     session = db.scalar(select(AuthSession).where(AuthSession.refresh_token_hash == hash_token(payload.refresh_token)))
     if session is not None and session.revoked_at is None:
         session.revoked_at = datetime.now(timezone.utc)
         user = db.get(User, session.user_id)
         _audit_auth_event(db, request, "logout.succeeded", user.username if user else None, user)
         db.commit()
+    if access_token:
+        token_payload = decode_access_token_payload(access_token)
+        if token_payload and token_payload.get("jti"):
+            exp = token_payload.get("exp", 0)
+            ttl_seconds = max(1, int(exp - datetime.now(timezone.utc).timestamp()))
+            revoke_access_token(str(token_payload["jti"]), ttl_seconds)
 
 
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)

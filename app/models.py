@@ -50,6 +50,27 @@ class PrintJobStatus(str, enum.Enum):
     failed = "failed"
 
 
+class PaymentMethod(str, enum.Enum):
+    cash = "cash"
+    card = "card"
+    mixed = "mixed"
+    external = "external"
+
+
+class ShiftStatus(str, enum.Enum):
+    open = "open"
+    closed = "closed"
+
+
+class RefundStatus(str, enum.Enum):
+    completed = "completed"
+
+
+class DiscountType(str, enum.Enum):
+    amount = "amount"
+    percent = "percent"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -207,6 +228,90 @@ class OrderEvent(Base):
     actor: Mapped[User | None] = relationship()
 
 
+class StaffShift(Base):
+    __tablename__ = "staff_shifts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    opened_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    closed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    status: Mapped[ShiftStatus] = mapped_column(Enum(ShiftStatus), default=ShiftStatus.open, index=True)
+    opening_cash_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
+    closing_cash_amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    opened_by: Mapped[User] = relationship(foreign_keys=[opened_by_id])
+    closed_by: Mapped[User | None] = relationship(foreign_keys=[closed_by_id])
+
+
+class OrderDiscount(Base):
+    __tablename__ = "order_discounts"
+    __table_args__ = (
+        CheckConstraint("value > 0", name="ck_order_discounts_value_positive"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), index=True)
+    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    discount_type: Mapped[DiscountType] = mapped_column(Enum(DiscountType), default=DiscountType.amount)
+    value: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    reason: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    order: Mapped[Order] = relationship()
+    created_by: Mapped[User] = relationship()
+
+
+class Payment(Base):
+    __tablename__ = "payments"
+    __table_args__ = (
+        CheckConstraint("subtotal_amount >= 0", name="ck_payments_subtotal_non_negative"),
+        CheckConstraint("discount_amount >= 0", name="ck_payments_discount_non_negative"),
+        CheckConstraint("tax_amount >= 0", name="ck_payments_tax_non_negative"),
+        CheckConstraint("service_fee_amount >= 0", name="ck_payments_service_fee_non_negative"),
+        CheckConstraint("final_amount >= 0", name="ck_payments_final_non_negative"),
+        CheckConstraint("amount_received >= final_amount", name="ck_payments_amount_received_covers_final"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), unique=True, index=True)
+    shift_id: Mapped[int] = mapped_column(ForeignKey("staff_shifts.id"), index=True)
+    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    method: Mapped[PaymentMethod] = mapped_column(Enum(PaymentMethod), index=True)
+    external_reference: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
+    subtotal_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    discount_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
+    tax_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
+    service_fee_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
+    final_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    amount_received: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    change_due: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    order: Mapped[Order] = relationship()
+    shift: Mapped[StaffShift] = relationship()
+    created_by: Mapped[User] = relationship()
+
+
+class Refund(Base):
+    __tablename__ = "refunds"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_refunds_amount_positive"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    payment_id: Mapped[int] = mapped_column(ForeignKey("payments.id"), index=True)
+    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    reason: Mapped[str] = mapped_column(String(255))
+    status: Mapped[RefundStatus] = mapped_column(Enum(RefundStatus), default=RefundStatus.completed, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    payment: Mapped[Payment] = relationship()
+    created_by: Mapped[User] = relationship()
+
+
 class PeripheralDevice(Base):
     __tablename__ = "peripheral_devices"
 
@@ -219,6 +324,20 @@ class PeripheralDevice(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     print_jobs: Mapped[list["PrintJob"]] = relationship(back_populates="device")
+
+
+class DeviceAgentToken(Base):
+    __tablename__ = "device_agent_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("peripheral_devices.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+    device: Mapped[PeripheralDevice] = relationship()
 
 
 class PrintJob(Base):
@@ -236,3 +355,18 @@ class PrintJob(Base):
 
     device: Mapped[PeripheralDevice] = relationship(back_populates="print_jobs")
     order: Mapped[Order | None] = relationship()
+
+
+class PrintJobLease(Base):
+    __tablename__ = "print_job_leases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("print_jobs.id"), unique=True, index=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("peripheral_devices.id"), index=True)
+    lease_token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    job: Mapped[PrintJob] = relationship()
+    device: Mapped[PeripheralDevice] = relationship()

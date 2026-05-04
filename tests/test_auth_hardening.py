@@ -1,13 +1,13 @@
 from sqlalchemy import select
 
+from app.core.auth_state import clear_local_state
 from app.db.session import SessionLocal
 from app.models import AuthAuditEvent
-from app.routers.auth import _login_failures
 from tests.test_api import client, token
 
 
 def test_login_rate_limits_repeated_failures() -> None:
-    _login_failures.clear()
+    clear_local_state()
 
     for _ in range(5):
         response = client.post("/auth/login", json={"username": "rate-limit-user", "password": "bad"})
@@ -18,7 +18,7 @@ def test_login_rate_limits_repeated_failures() -> None:
 
 
 def test_login_writes_safe_audit_events() -> None:
-    _login_failures.clear()
+    clear_local_state()
 
     response = client.post("/auth/login", json={"username": "waiter", "password": "waiter123"})
     assert response.status_code == 200, response.text
@@ -54,6 +54,23 @@ def test_refresh_token_rotates_and_logout_revokes_latest_session() -> None:
 
     after_logout = client.post("/auth/refresh", json={"refresh_token": second_refresh_token})
     assert after_logout.status_code == 401
+
+
+def test_logout_revokes_current_access_token() -> None:
+    login = client.post("/auth/login", json={"username": "waiter", "password": "waiter123"})
+    assert login.status_code == 200, login.text
+    access_token = login.json()["access_token"]
+    refresh_token = login.json()["refresh_token"]
+
+    logout = client.post(
+        "/auth/logout",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"refresh_token": refresh_token},
+    )
+    assert logout.status_code == 204
+
+    me = client.get("/auth/me", headers={"Authorization": f"Bearer {access_token}"})
+    assert me.status_code == 401
 
 
 def test_waiter_cannot_access_manager_user_list() -> None:
