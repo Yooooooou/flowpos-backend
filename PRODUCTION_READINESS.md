@@ -9,8 +9,8 @@ Status values: `todo`, `in_progress`, `blocked`, `review`, `done`.
 | 3 | Auth hardening and access-control tests | done | 0bce1ba | Login abuse is limited; token lifecycle and RBAC tests pass |
 | 4 | API and Docker hardening | done | cf65075 | Non-root API image, healthcheck, docs gating, CORS checks |
 | 5 | Database migrations, backup, and restore | done | 794506d | Clean migrations, backup script, restore runbook |
-| 6 | Observability | done | pending | Structured logs, request ids, metrics, error tracking hooks |
-| 7 | Expanded test coverage | todo | pending | Critical business flows and negative paths covered |
+| 6 | Observability | done | 784b9c9 | Structured logs, request ids, metrics, error tracking hooks |
+| 7 | Expanded test coverage | done | pending | Critical business flows and negative paths covered |
 | 8 | CI/CD | todo | pending | Automated tests, builds, scans, and deploy gates |
 | 9 | Production deploy runbook | todo | pending | Real deploy checklist and smoke test path documented |
 | 10 | POS business production features | todo | pending | Shifts, payments, refunds, discounts, reports, device agent protocol |
