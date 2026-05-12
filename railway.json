@@ -5,7 +5,8 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "sh start.sh",
+    "predeploy": "alembic upgrade head",
+    "startCommand": "sh -c 'uvicorn app.main:app --host 0.0.0.0 --port $PORT'",
     "healthcheckPath": "/health",
     "restartPolicyType": "ON_FAILURE"
   }
