@@ -170,6 +170,62 @@ export interface SyncResult {
   error?: string | null;
 }
 
+export interface Payment {
+  id: number;
+  order_id: number;
+  shift_id: number | null;
+  method: "cash" | "card" | "qr" | "account";
+  subtotal_amount: string;
+  discount_amount: string;
+  service_fee_amount: string;
+  final_amount: string;
+  amount_received: string | null;
+  change_due: string | null;
+  created_at: string;
+  order?: Order | null;
+}
+
+export interface Shift {
+  id: number;
+  status: "open" | "closed";
+  cashier_id: number;
+  opening_cash_amount: string;
+  closing_cash_amount: string | null;
+  opened_at: string;
+  closed_at: string | null;
+  note: string | null;
+  cashier?: User | null;
+}
+
+export interface Refund {
+  id: number;
+  payment_id: number;
+  amount: string;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+  payment?: Payment | null;
+}
+
+export interface OrderDiscount {
+  id: number;
+  order_id: number;
+  discount_type: "amount" | "percent";
+  value: string;
+  reason: string;
+  created_at: string;
+}
+
+export interface PrintJob {
+  id: number;
+  device_id: number;
+  order_id: number | null;
+  job_type: string;
+  status: "pending" | "sent" | "failed";
+  created_at: string;
+  device?: PeripheralDevice | null;
+}
+
 export interface LiveEvent {
   type: string;
   order_id: number;

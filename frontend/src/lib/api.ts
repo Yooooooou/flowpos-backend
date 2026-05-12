@@ -5,12 +5,18 @@ import type {
   MenuItem,
   OfflineDraftOrder,
   Order,
+  OrderDiscount,
   OrderItemInput,
   OrderStatus,
+  Payment,
   PeripheralDevice,
+  PrintJob,
+  Refund,
+  Shift,
   SyncResult,
   Table,
   TableOverview,
+  TableStatus,
   TokenResponse,
   User,
   WaiterBoard
@@ -156,5 +162,84 @@ export const api = {
   },
   menuItemByBarcode(token: string, barcode: string) {
     return request<MenuItem>(`/menu/items/barcode/${barcode}`, {}, token);
-  }
+  },
+
+  // Users CRUD
+  users(token: string) {
+    return request<User[]>("/users", {}, token);
+  },
+  createUser(token: string, payload: { username: string; password: string; full_name: string; role: string }) {
+    return request<User>("/users", { method: "POST", body: JSON.stringify(payload) }, token);
+  },
+  updateUser(token: string, userId: number, payload: Partial<{ full_name: string; role: string; is_active: boolean; password: string }>) {
+    return request<User>(`/users/${userId}`, { method: "PATCH", body: JSON.stringify(payload) }, token);
+  },
+
+  // Tables CRUD
+  createTable(token: string, payload: { number: string; seats: number; location?: string }) {
+    return request<Table>("/tables", { method: "POST", body: JSON.stringify(payload) }, token);
+  },
+  updateTable(token: string, tableId: number, payload: Partial<{ number: string; seats: number; location: string; status: TableStatus }>) {
+    return request<Table>(`/tables/${tableId}`, { method: "PATCH", body: JSON.stringify(payload) }, token);
+  },
+
+  // Menu CRUD
+  createCategory(token: string, payload: { name: string; sort_order?: number }) {
+    return request<Category>("/menu/categories", { method: "POST", body: JSON.stringify(payload) }, token);
+  },
+  updateCategory(token: string, catId: number, payload: Partial<{ name: string; sort_order: number; is_active: boolean }>) {
+    return request<Category>(`/menu/categories/${catId}`, { method: "PATCH", body: JSON.stringify(payload) }, token);
+  },
+  createMenuItem(token: string, payload: { category_id: number; name: string; price: string; preparation_time_minutes?: number; description?: string; barcode?: string }) {
+    return request<MenuItem>("/menu/items", { method: "POST", body: JSON.stringify(payload) }, token);
+  },
+  updateMenuItem(token: string, itemId: number, payload: Partial<{ name: string; price: string; description: string; is_available: boolean; category_id: number; preparation_time_minutes: number }>) {
+    return request<MenuItem>(`/menu/items/${itemId}`, { method: "PATCH", body: JSON.stringify(payload) }, token);
+  },
+
+  // Payments
+  payments(token: string, params: Record<string, string | number | undefined> = {}) {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v !== undefined) query.set(k, String(v)); });
+    const suffix = query.size ? `?${query}` : "";
+    return request<Payment[]>(`/payments${suffix}`, {}, token);
+  },
+  createPayment(token: string, payload: { order_id: number; method: string; amount_received?: number; discount_type?: string; discount_value?: number; tip_amount?: number }) {
+    return request<Payment>("/payments", { method: "POST", body: JSON.stringify(payload) }, token);
+  },
+
+  // Discounts
+  createDiscount(token: string, orderId: number, payload: { discount_type: "amount" | "percent"; value: number; reason?: string }) {
+    return request<OrderDiscount>(`/orders/${orderId}/discount`, { method: "POST", body: JSON.stringify(payload) }, token);
+  },
+
+  // Refunds
+  refunds(token: string) {
+    return request<Refund[]>("/payments/refunds", {}, token);
+  },
+  createRefund(token: string, paymentId: number, payload: { amount: number; reason: string }) {
+    return request<Refund>(`/payments/${paymentId}/refund`, { method: "POST", body: JSON.stringify(payload) }, token);
+  },
+
+  // Shifts
+  shifts(token: string) {
+    return request<Shift[]>("/shifts", {}, token);
+  },
+  currentShift(token: string) {
+    return request<Shift | null>("/shifts/current", {}, token);
+  },
+  openShift(token: string, opening_cash_amount: number) {
+    return request<Shift>("/shifts/open", { method: "POST", body: JSON.stringify({ opening_cash_amount }) }, token);
+  },
+  closeShift(token: string, closing_cash_amount: number, note?: string) {
+    return request<Shift>("/shifts/close", { method: "POST", body: JSON.stringify({ closing_cash_amount, note }) }, token);
+  },
+  shiftReport(token: string, shiftId: number) {
+    return request<{ shift: Shift; total_orders: number; total_revenue: string; by_method: Record<string, string> }>(`/shifts/${shiftId}/report`, {}, token);
+  },
+
+  // Print jobs
+  printJobs(token: string) {
+    return request<PrintJob[]>("/peripherals/print-jobs", {}, token);
+  },
 };

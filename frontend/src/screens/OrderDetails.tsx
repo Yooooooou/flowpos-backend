@@ -1,0 +1,437 @@
+import { useState } from "react";
+import { useApp } from "../lib/store";
+import type { Order, OrderStatus } from "../types";
+
+function fmtKZT(v: string | number | null | undefined) {
+  if (v == null) return "—";
+  const n = typeof v === "string" ? parseFloat(v) : v;
+  return new Intl.NumberFormat("ru-KZ", { style: "currency", currency: "KZT", maximumFractionDigits: 0 }).format(n);
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: "Ожидает",
+  in_progress: "Готовится",
+  ready: "Готов",
+  served: "Подан",
+  paid: "Оплачен",
+  cancelled: "Отменён",
+};
+
+const PRI_LABEL: Record<string, string> = {
+  low: "Низкий",
+  normal: "Обычный",
+  high: "Высокий",
+  urgent: "Срочно",
+};
+
+interface Props {
+  orderId: number;
+  setRoute: (r: { id: string; tableId?: number; orderId?: number }) => void;
+}
+
+export function OrderDetails({ orderId, setRoute }: Props) {
+  const { state, changeStatus, toast } = useApp();
+  const order = state.orders.find(o => o.id === orderId);
+
+  const [confirmStatus, setConfirmStatus] = useState<OrderStatus | null>(null);
+
+  if (!order) {
+    return (
+      <div style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}>
+        Заказ #{orderId} не найден
+        <br />
+        <button className="btn" style={{ marginTop: 16 }} onClick={() => setRoute({ id: "w_orders" })}>← Назад</button>
+      </div>
+    );
+  }
+
+  const handleStatus = async (status: OrderStatus) => {
+    try {
+      await changeStatus(orderId, status);
+      toast("success", `Статус обновлён: ${STATUS_LABEL[status]}`);
+      setConfirmStatus(null);
+    } catch (e: unknown) {
+      toast("error", e instanceof Error ? e.message : "Ошибка");
+    }
+  };
+
+  const nextActions = getNextActions(order.status);
+
+  return (
+    <>
+      <header className="topbar">
+        <button className="iconbtn borderless" onClick={() => setRoute({ id: "w_orders" })}>←</button>
+        <div style={{ fontWeight: 600 }}>
+          Заказ #{order.id}
+          {order.table && <span style={{ marginLeft: 10, fontWeight: 400, color: "var(--ink-3)", fontSize: 13 }}>Стол {order.table.number}</span>}
+        </div>
+        <span className={`badge ${order.status}`} style={{ marginLeft: 12 }}>{STATUS_LABEL[order.status]}</span>
+        <div style={{ flex: 1 }} />
+        {order.status === "served" && (
+          <button className="btn primary" onClick={() => setRoute({ id: "w_payment", orderId })}>
+            💳 Оплатить
+          </button>
+        )}
+        {order.status !== "paid" && order.status !== "cancelled" && order.status !== "served" && (
+          <button className="btn" onClick={() => setRoute({ id: "w_order_create", orderId, tableId: order.table_id })}>
+            ✏️ Редактировать
+          </button>
+        )}
+      </header>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", height: "calc(100vh - 56px)", overflow: "hidden" }}>
+        {/* Items */}
+        <div style={{ overflow: "auto", padding: 24 }}>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 600 }}>
+              Позиции заказа
+            </div>
+            <div>
+              {order.items.map(item => (
+                <div key={item.id} style={{ padding: "12px 18px", borderBottom: "1px solid var(--line-1)", display: "flex", gap: 12, alignItems: "center" }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 500, fontSize: 14 }}>{item.menu_item?.name ?? `Позиция #${item.menu_item_id}`}</div>
+                    {item.note && <div style={{ fontSize: 12, color: "var(--amber)", marginTop: 2 }}>📝 {item.note}</div>}
+                  </div>
+                  <div style={{ fontSize: 13, color: "var(--ink-3)" }}>×{item.quantity}</div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{fmtKZT(item.line_total)}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: "12px 18px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", color: "var(--ink-3)", fontSize: 13, marginBottom: 4 }}>
+                <span>Подытог</span><span>{fmtKZT(parseFloat(order.total_amount) / 1.1)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", color: "var(--ink-3)", fontSize: 13, marginBottom: 8 }}>
+                <span>Сервис 10%</span><span>{fmtKZT(parseFloat(order.total_amount) - parseFloat(order.total_amount) / 1.1)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16, fontWeight: 700 }}>
+                <span>Итого</span><span>{fmtKZT(order.total_amount)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* History */}
+          {order.events.length > 0 && (
+            <div className="card">
+              <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 600 }}>История</div>
+              <div style={{ padding: "12px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+                {[...order.events].reverse().map(ev => (
+                  <div key={ev.id} style={{ display: "flex", gap: 12, fontSize: 13 }}>
+                    <div style={{ fontSize: 11, color: "var(--ink-3)", minWidth: 80, paddingTop: 1 }}>
+                      {new Date(ev.created_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                    <div>
+                      <div>{ev.message || formatEvent(ev.event_type, ev.from_status, ev.to_status)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Meta + actions */}
+        <aside style={{ borderLeft: "1px solid var(--line-1)", background: "var(--bg-paper)", overflow: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="card">
+            <div style={{ padding: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                <span style={{ color: "var(--ink-3)", fontSize: 13 }}>Приоритет</span>
+                <span className={`pri ${order.priority}`}>{PRI_LABEL[order.priority]}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ color: "var(--ink-3)", fontSize: 13 }}>Официант</span>
+                <span style={{ fontSize: 13, fontWeight: 500 }}>{order.waiter?.full_name ?? "—"}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ color: "var(--ink-3)", fontSize: 13 }}>Создан</span>
+                <span style={{ fontSize: 13 }}>{new Date(order.created_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</span>
+              </div>
+              {order.customer_note && (
+                <div style={{ marginTop: 10, padding: 10, background: "var(--bg-sunken)", borderRadius: "var(--r)", fontSize: 13 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 4, color: "var(--ink-3)", fontSize: 11 }}>КОММЕНТАРИЙ ГОСТЯ</div>
+                  {order.customer_note}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {nextActions.length > 0 && (
+            <div className="card">
+              <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--line-1)", fontWeight: 600, fontSize: 14 }}>Действия</div>
+              <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                {nextActions.map(action => (
+                  <button
+                    key={action.status}
+                    className={`btn block ${action.kind ?? ""}`}
+                    onClick={() => setConfirmStatus(action.status)}
+                  >
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </aside>
+      </div>
+
+      {confirmStatus && (
+        <div className="scrim" onClick={() => setConfirmStatus(null)}>
+          <div className="modal" style={{ maxWidth: 360 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <div className="modal-title">Изменить статус?</div>
+              <button className="iconbtn borderless" onClick={() => setConfirmStatus(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ margin: 0, color: "var(--ink-3)" }}>
+                Новый статус: <b style={{ color: "var(--ink-1)" }}>{STATUS_LABEL[confirmStatus]}</b>
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn" onClick={() => setConfirmStatus(null)}>Отмена</button>
+              <button className="btn primary" onClick={() => handleStatus(confirmStatus)}>Подтвердить</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function getNextActions(status: string): Array<{ status: OrderStatus; label: string; kind?: string }> {
+  switch (status) {
+    case "pending": return [{ status: "in_progress", label: "→ Начать готовку", kind: "primary" }, { status: "cancelled", label: "Отменить заказ", kind: "danger" }];
+    case "in_progress": return [{ status: "ready", label: "✓ Готово к подаче", kind: "success" }];
+    case "ready": return [{ status: "served", label: "🍽 Подан гостю", kind: "primary" }];
+    case "served": return [{ status: "paid", label: "💳 Оплачен", kind: "success" }];
+    default: return [];
+  }
+}
+
+function formatEvent(type: string, from: string | null, to: string | null) {
+  const STATUS_LABEL: Record<string, string> = { pending: "Ожидает", in_progress: "Готовится", ready: "Готов", served: "Подан", paid: "Оплачен", cancelled: "Отменён" };
+  if (type === "status_changed" && from && to) {
+    return `${STATUS_LABEL[from] ?? from} → ${STATUS_LABEL[to] ?? to}`;
+  }
+  if (type === "created") return "Заказ создан";
+  if (type === "updated") return "Заказ обновлён";
+  return type;
+}
+
+// ─── WaiterPayment ────────────────────────────────────────────────────────────
+
+interface PaymentProps {
+  orderId: number;
+  setRoute: (r: { id: string; orderId?: number }) => void;
+}
+
+export function WaiterPayment({ orderId, setRoute }: PaymentProps) {
+  const { state, createPayment, changeStatus, toast } = useApp();
+  const order = state.orders.find(o => o.id === orderId);
+
+  const [method, setMethod] = useState<"cash" | "card" | "qr" | "account">("cash");
+  const [discountType, setDiscountType] = useState<"none" | "amount" | "percent">("none");
+  const [discountVal, setDiscountVal] = useState("");
+  const [received, setReceived] = useState("");
+  const [tip, setTip] = useState("");
+  const [confirm, setConfirm] = useState(false);
+  const [processing, setProcessing] = useState(false);
+
+  if (!order) return <div style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}>Заказ не найден</div>;
+
+  const subtotal = parseFloat(order.total_amount);
+  const discountAmt = discountType === "amount" ? (parseFloat(discountVal) || 0) :
+    discountType === "percent" ? subtotal * (parseFloat(discountVal) || 0) / 100 : 0;
+  const tipAmt = parseFloat(tip) || 0;
+  const finalAmt = Math.max(0, subtotal - discountAmt) + tipAmt;
+  const receivedAmt = parseFloat(received) || 0;
+  const change = method === "cash" ? Math.max(0, receivedAmt - finalAmt) : 0;
+
+  const pay = async () => {
+    setProcessing(true);
+    try {
+      await createPayment({
+        order_id: orderId,
+        method,
+        amount_received: method === "cash" ? receivedAmt : undefined,
+        discount_type: discountType !== "none" ? discountType : undefined,
+        discount_value: discountType !== "none" ? parseFloat(discountVal) || 0 : undefined,
+        tip_amount: tipAmt || undefined,
+      });
+      await changeStatus(orderId, "paid");
+      toast("success", `Заказ #${orderId} оплачен`);
+      setRoute({ id: "w_tables" });
+    } catch (e: unknown) {
+      toast("error", e instanceof Error ? e.message : "Ошибка оплаты");
+    } finally {
+      setProcessing(false);
+      setConfirm(false);
+    }
+  };
+
+  const METHODS = [
+    { id: "cash" as const, label: "Наличные", icon: "💵" },
+    { id: "card" as const, label: "Карта", icon: "💳" },
+    { id: "qr" as const, label: "QR / Kaspi", icon: "📱" },
+    { id: "account" as const, label: "На счёт", icon: "🧾" },
+  ];
+
+  return (
+    <>
+      <header className="topbar">
+        <button className="iconbtn borderless" onClick={() => setRoute({ id: "w_order_details", orderId })}>←</button>
+        <div style={{ fontWeight: 600 }}>Оплата заказа #{orderId}</div>
+        <div style={{ flex: 1 }} />
+      </header>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", height: "calc(100vh - 56px)", overflow: "hidden" }}>
+        {/* Left: order summary */}
+        <div style={{ overflow: "auto", padding: 24 }}>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 600 }}>
+              Состав заказа · Стол {order.table?.number ?? order.table_id}
+            </div>
+            {order.items.map(item => (
+              <div key={item.id} style={{ padding: "10px 18px", borderBottom: "1px solid var(--line-1)", display: "flex", justifyContent: "space-between", fontSize: 14 }}>
+                <span>{item.menu_item?.name ?? `#${item.menu_item_id}`} ×{item.quantity}</span>
+                <span style={{ fontWeight: 500 }}>{fmtKZT(item.line_total)}</span>
+              </div>
+            ))}
+            <div style={{ padding: "12px 18px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", color: "var(--ink-3)", fontSize: 13, marginBottom: 8 }}>
+                <span>Итого</span><span>{fmtKZT(order.total_amount)}</span>
+              </div>
+              {discountAmt > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", color: "var(--green)", fontSize: 13, marginBottom: 8 }}>
+                  <span>Скидка</span><span>−{fmtKZT(discountAmt)}</span>
+                </div>
+              )}
+              {tipAmt > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", color: "var(--ink-3)", fontSize: 13, marginBottom: 8 }}>
+                  <span>Чаевые</span><span>+{fmtKZT(tipAmt)}</span>
+                </div>
+              )}
+              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 18, marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line-1)" }}>
+                <span>К оплате</span><span>{fmtKZT(finalAmt)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right: payment form */}
+        <aside style={{ borderLeft: "1px solid var(--line-1)", background: "var(--bg-paper)", overflow: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Payment method */}
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Способ оплаты</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {METHODS.map(m => (
+                <button
+                  key={m.id}
+                  className={`btn ${method === m.id ? "primary" : ""}`}
+                  style={{ flexDirection: "column", padding: "14px 8px", height: 72, gap: 4 }}
+                  onClick={() => setMethod(m.id)}
+                >
+                  <span style={{ fontSize: 20 }}>{m.icon}</span>
+                  <span style={{ fontSize: 12 }}>{m.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Discount */}
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Скидка</div>
+            <div className="segmented" style={{ marginBottom: discountType !== "none" ? 8 : 0 }}>
+              <button className={discountType === "none" ? "active" : ""} onClick={() => setDiscountType("none")}>Нет</button>
+              <button className={discountType === "amount" ? "active" : ""} onClick={() => setDiscountType("amount")}>₸</button>
+              <button className={discountType === "percent" ? "active" : ""} onClick={() => setDiscountType("percent")}>%</button>
+            </div>
+            {discountType !== "none" && (
+              <input
+                className="input"
+                type="number"
+                placeholder={discountType === "amount" ? "Сумма скидки ₸" : "Процент скидки %"}
+                value={discountVal}
+                onChange={e => setDiscountVal(e.target.value)}
+              />
+            )}
+          </div>
+
+          {/* Tip */}
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Чаевые</div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+              {[0, 5, 10, 15].map(pct => {
+                const amt = pct === 0 ? 0 : Math.round(subtotal * pct / 100);
+                return (
+                  <button
+                    key={pct}
+                    className={`btn sm ${tipAmt === amt && pct > 0 ? "primary" : pct === 0 && !tipAmt ? "primary" : ""}`}
+                    onClick={() => setTip(amt > 0 ? String(amt) : "")}
+                  >
+                    {pct === 0 ? "Нет" : `${pct}%`}
+                  </button>
+                );
+              })}
+            </div>
+            <input className="input" type="number" placeholder="Своя сумма чаевых" value={tip} onChange={e => setTip(e.target.value)} />
+          </div>
+
+          {/* Cash received */}
+          {method === "cash" && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Принято наличными</div>
+              <input
+                className="input"
+                type="number"
+                placeholder={fmtKZT(finalAmt)}
+                value={received}
+                onChange={e => setReceived(e.target.value)}
+              />
+              {change > 0 && (
+                <div style={{ marginTop: 10, padding: 12, background: "var(--green)15", border: "1px solid var(--green)30", borderRadius: "var(--r)", textAlign: "center" }}>
+                  <div style={{ fontSize: 12, color: "var(--ink-3)" }}>Сдача</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: "var(--green)" }}>{fmtKZT(change)}</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <button
+            className="btn success block lg"
+            style={{ marginTop: "auto" }}
+            onClick={() => setConfirm(true)}
+            disabled={processing}
+          >
+            ✓ Принять оплату {fmtKZT(finalAmt)}
+          </button>
+        </aside>
+      </div>
+
+      {confirm && (
+        <div className="scrim" onClick={() => setConfirm(false)}>
+          <div className="modal" style={{ maxWidth: 360 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <div className="modal-title">Подтвердить оплату?</div>
+              <button className="iconbtn borderless" onClick={() => setConfirm(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div style={{ fontSize: 28, fontWeight: 700, textAlign: "center", marginBottom: 8 }}>{fmtKZT(finalAmt)}</div>
+              <div style={{ textAlign: "center", color: "var(--ink-3)", fontSize: 14 }}>
+                {METHODS_MAP[method]} · Заказ #{orderId}
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button className="btn" onClick={() => setConfirm(false)}>Отмена</button>
+              <button className="btn success" onClick={pay} disabled={processing}>
+                {processing ? "Обработка..." : "Подтвердить"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+const METHODS_MAP: Record<string, string> = { cash: "Наличные", card: "Карта", qr: "QR / Kaspi", account: "На счёт" };
