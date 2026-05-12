@@ -1,7 +1,10 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Query, Response, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -71,6 +74,15 @@ def create_app() -> FastAPI:
     @application.get("/metrics", tags=["system"])
     def metrics() -> Response:
         return Response(render_metrics(), media_type="text/plain; version=0.0.4")
+
+    # Serve built frontend (if present)
+    dist = Path(__file__).parent.parent / "frontend" / "dist"
+    if dist.exists():
+        application.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+
+        @application.get("/{full_path:path}", include_in_schema=False)
+        def spa_fallback(full_path: str) -> FileResponse:
+            return FileResponse(dist / "index.html")
 
     @application.websocket("/ws/orders")
     async def orders_socket(
