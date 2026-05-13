@@ -24,6 +24,8 @@ configure_logging()
 async def lifespan(_: FastAPI):
     if settings.auto_create_tables:
         Base.metadata.create_all(bind=engine)
+    from app.seed import seed_initial_users
+    seed_initial_users()
     await websocket_manager.startup()
     yield
     await websocket_manager.shutdown()
