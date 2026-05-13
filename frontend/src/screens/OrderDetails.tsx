@@ -1,28 +1,8 @@
 import { useState } from "react";
 import { useApp } from "../lib/store";
 import type { Order, OrderStatus } from "../types";
-
-function fmtKZT(v: string | number | null | undefined) {
-  if (v == null) return "—";
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  return new Intl.NumberFormat("ru-KZ", { style: "currency", currency: "KZT", maximumFractionDigits: 0 }).format(n);
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  pending: "Ожидает",
-  in_progress: "Готовится",
-  ready: "Готов",
-  served: "Подан",
-  paid: "Оплачен",
-  cancelled: "Отменён",
-};
-
-const PRI_LABEL: Record<string, string> = {
-  low: "Низкий",
-  normal: "Обычный",
-  high: "Высокий",
-  urgent: "Срочно",
-};
+import { Icon } from "../components/Icon";
+import { StatusBadge, PriorityChip, fmtKZT, fmtTime, STATUS_LABEL, Modal, ConfirmModal } from "../components/UI";
 
 interface Props {
   orderId: number;
@@ -40,7 +20,9 @@ export function OrderDetails({ orderId, setRoute }: Props) {
       <div style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}>
         Заказ #{orderId} не найден
         <br />
-        <button className="btn" style={{ marginTop: 16 }} onClick={() => setRoute({ id: "w_orders" })}>← Назад</button>
+        <button className="btn" style={{ marginTop: 16 }} onClick={() => setRoute({ id: "w_orders" })}>
+          <Icon name="back" /> Назад
+        </button>
       </div>
     );
   }
@@ -60,21 +42,23 @@ export function OrderDetails({ orderId, setRoute }: Props) {
   return (
     <>
       <header className="topbar">
-        <button className="iconbtn borderless" onClick={() => setRoute({ id: "w_orders" })}>←</button>
+        <button className="iconbtn borderless" onClick={() => setRoute({ id: "w_orders" })}>
+          <Icon name="back" />
+        </button>
         <div style={{ fontWeight: 600 }}>
           Заказ #{order.id}
           {order.table && <span style={{ marginLeft: 10, fontWeight: 400, color: "var(--ink-3)", fontSize: 13 }}>Стол {order.table.number}</span>}
         </div>
-        <span className={`badge ${order.status}`} style={{ marginLeft: 12 }}>{STATUS_LABEL[order.status]}</span>
+        <StatusBadge status={order.status} />
         <div style={{ flex: 1 }} />
         {order.status === "served" && (
           <button className="btn primary" onClick={() => setRoute({ id: "w_payment", orderId })}>
-            💳 Оплатить
+            <Icon name="card" /> Оплатить
           </button>
         )}
         {order.status !== "paid" && order.status !== "cancelled" && order.status !== "served" && (
           <button className="btn" onClick={() => setRoute({ id: "w_order_create", orderId, tableId: order.table_id })}>
-            ✏️ Редактировать
+            <Icon name="edit" /> Редактировать
           </button>
         )}
       </header>
@@ -91,7 +75,11 @@ export function OrderDetails({ orderId, setRoute }: Props) {
                 <div key={item.id} style={{ padding: "12px 18px", borderBottom: "1px solid var(--line-1)", display: "flex", gap: 12, alignItems: "center" }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 500, fontSize: 14 }}>{item.menu_item?.name ?? `Позиция #${item.menu_item_id}`}</div>
-                    {item.note && <div style={{ fontSize: 12, color: "var(--amber)", marginTop: 2 }}>📝 {item.note}</div>}
+                    {item.note && (
+                      <div style={{ fontSize: 12, color: "var(--amber)", marginTop: 2, display: "flex", gap: 4, alignItems: "center" }}>
+                        <Icon name="note" size={11} /> {item.note}
+                      </div>
+                    )}
                   </div>
                   <div style={{ fontSize: 13, color: "var(--ink-3)" }}>×{item.quantity}</div>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{fmtKZT(item.line_total)}</div>
@@ -111,7 +99,6 @@ export function OrderDetails({ orderId, setRoute }: Props) {
             </div>
           </div>
 
-          {/* History */}
           {order.events.length > 0 && (
             <div className="card">
               <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 600 }}>История</div>
@@ -119,11 +106,9 @@ export function OrderDetails({ orderId, setRoute }: Props) {
                 {[...order.events].reverse().map(ev => (
                   <div key={ev.id} style={{ display: "flex", gap: 12, fontSize: 13 }}>
                     <div style={{ fontSize: 11, color: "var(--ink-3)", minWidth: 80, paddingTop: 1 }}>
-                      {new Date(ev.created_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+                      {fmtTime(ev.created_at)}
                     </div>
-                    <div>
-                      <div>{ev.message || formatEvent(ev.event_type, ev.from_status, ev.to_status)}</div>
-                    </div>
+                    <div>{ev.message || formatEvent(ev.event_type, ev.from_status, ev.to_status)}</div>
                   </div>
                 ))}
               </div>
@@ -137,7 +122,7 @@ export function OrderDetails({ orderId, setRoute }: Props) {
             <div style={{ padding: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
                 <span style={{ color: "var(--ink-3)", fontSize: 13 }}>Приоритет</span>
-                <span className={`pri ${order.priority}`}>{PRI_LABEL[order.priority]}</span>
+                <PriorityChip priority={order.priority} />
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
                 <span style={{ color: "var(--ink-3)", fontSize: 13 }}>Официант</span>
@@ -145,11 +130,11 @@ export function OrderDetails({ orderId, setRoute }: Props) {
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
                 <span style={{ color: "var(--ink-3)", fontSize: 13 }}>Создан</span>
-                <span style={{ fontSize: 13 }}>{new Date(order.created_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</span>
+                <span style={{ fontSize: 13 }}>{fmtTime(order.created_at)}</span>
               </div>
               {order.customer_note && (
                 <div style={{ marginTop: 10, padding: 10, background: "var(--bg-sunken)", borderRadius: "var(--r)", fontSize: 13 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4, color: "var(--ink-3)", fontSize: 11 }}>КОММЕНТАРИЙ ГОСТЯ</div>
+                  <div style={{ fontWeight: 600, marginBottom: 4, color: "var(--ink-3)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>Комментарий гостя</div>
                   {order.customer_note}
                 </div>
               )}
@@ -166,7 +151,7 @@ export function OrderDetails({ orderId, setRoute }: Props) {
                     className={`btn block ${action.kind ?? ""}`}
                     onClick={() => setConfirmStatus(action.status)}
                   >
-                    {action.label}
+                    <Icon name={action.icon ?? "forward"} /> {action.label}
                   </button>
                 ))}
               </div>
@@ -176,40 +161,40 @@ export function OrderDetails({ orderId, setRoute }: Props) {
       </div>
 
       {confirmStatus && (
-        <div className="scrim" onClick={() => setConfirmStatus(null)}>
-          <div className="modal" style={{ maxWidth: 360 }} onClick={e => e.stopPropagation()}>
-            <div className="modal-head">
-              <div className="modal-title">Изменить статус?</div>
-              <button className="iconbtn borderless" onClick={() => setConfirmStatus(null)}>✕</button>
-            </div>
-            <div className="modal-body">
-              <p style={{ margin: 0, color: "var(--ink-3)" }}>
-                Новый статус: <b style={{ color: "var(--ink-1)" }}>{STATUS_LABEL[confirmStatus]}</b>
-              </p>
-            </div>
-            <div className="modal-foot">
-              <button className="btn" onClick={() => setConfirmStatus(null)}>Отмена</button>
+        <Modal
+          title="Изменить статус?"
+          onClose={() => setConfirmStatus(null)}
+          footer={
+            <>
+              <button className="btn ghost" onClick={() => setConfirmStatus(null)}>Отмена</button>
               <button className="btn primary" onClick={() => handleStatus(confirmStatus)}>Подтвердить</button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+          width={360}
+        >
+          <p style={{ margin: 0, color: "var(--ink-2)", lineHeight: 1.55 }}>
+            Новый статус: <b style={{ color: "var(--ink-1)" }}>{STATUS_LABEL[confirmStatus]}</b>
+          </p>
+        </Modal>
       )}
     </>
   );
 }
 
-function getNextActions(status: string): Array<{ status: OrderStatus; label: string; kind?: string }> {
+function getNextActions(status: string): Array<{ status: OrderStatus; label: string; kind?: string; icon?: string }> {
   switch (status) {
-    case "pending": return [{ status: "in_progress", label: "→ Начать готовку", kind: "primary" }, { status: "cancelled", label: "Отменить заказ", kind: "danger" }];
-    case "in_progress": return [{ status: "ready", label: "✓ Готово к подаче", kind: "success" }];
-    case "ready": return [{ status: "served", label: "🍽 Подан гостю", kind: "primary" }];
-    case "served": return [{ status: "paid", label: "💳 Оплачен", kind: "success" }];
-    default: return [];
+    case "pending":     return [
+      { status: "in_progress", label: "Начать готовку",   kind: "primary", icon: "play"    },
+      { status: "cancelled",   label: "Отменить заказ",   kind: "danger",  icon: "x"       },
+    ];
+    case "in_progress": return [{ status: "ready",  label: "Готово к подаче", kind: "success", icon: "check" }];
+    case "ready":       return [{ status: "served", label: "Подан гостю",     kind: "primary", icon: "tray"  }];
+    case "served":      return [{ status: "paid",   label: "Оплачен",         kind: "success", icon: "card"  }];
+    default:            return [];
   }
 }
 
 function formatEvent(type: string, from: string | null, to: string | null) {
-  const STATUS_LABEL: Record<string, string> = { pending: "Ожидает", in_progress: "Готовится", ready: "Готов", served: "Подан", paid: "Оплачен", cancelled: "Отменён" };
   if (type === "status_changed" && from && to) {
     return `${STATUS_LABEL[from] ?? from} → ${STATUS_LABEL[to] ?? to}`;
   }
@@ -226,7 +211,7 @@ interface PaymentProps {
 }
 
 export function WaiterPayment({ orderId, setRoute }: PaymentProps) {
-  const { state, createPayment, changeStatus, toast } = useApp();
+  const { state, createPayment, toast } = useApp();
   const order = state.orders.find(o => o.id === orderId);
 
   const [method, setMethod] = useState<"cash" | "card" | "qr" | "account">("cash");
@@ -253,12 +238,11 @@ export function WaiterPayment({ orderId, setRoute }: PaymentProps) {
       await createPayment({
         order_id: orderId,
         method,
-        amount_received: method === "cash" ? receivedAmt : undefined,
+        amount_received: method === "cash" ? receivedAmt : finalAmt,
         discount_type: discountType !== "none" ? discountType : undefined,
         discount_value: discountType !== "none" ? parseFloat(discountVal) || 0 : undefined,
         tip_amount: tipAmt || undefined,
       });
-      await changeStatus(orderId, "paid");
       toast("success", `Заказ #${orderId} оплачен`);
       setRoute({ id: "w_tables" });
     } catch (e: unknown) {
@@ -269,17 +253,19 @@ export function WaiterPayment({ orderId, setRoute }: PaymentProps) {
     }
   };
 
-  const METHODS = [
-    { id: "cash" as const, label: "Наличные", icon: "💵" },
-    { id: "card" as const, label: "Карта", icon: "💳" },
-    { id: "qr" as const, label: "QR / Kaspi", icon: "📱" },
-    { id: "account" as const, label: "На счёт", icon: "🧾" },
+  const METHODS: Array<{ id: "cash" | "card" | "qr" | "account"; label: string; icon: string }> = [
+    { id: "cash",    label: "Наличные",  icon: "cash"    },
+    { id: "card",    label: "Карта",     icon: "card"    },
+    { id: "qr",      label: "QR / Kaspi", icon: "qr"    },
+    { id: "account", label: "На счёт",  icon: "receipt" },
   ];
 
   return (
     <>
       <header className="topbar">
-        <button className="iconbtn borderless" onClick={() => setRoute({ id: "w_order_details", orderId })}>←</button>
+        <button className="iconbtn borderless" onClick={() => setRoute({ id: "w_order_details", orderId })}>
+          <Icon name="back" />
+        </button>
         <div style={{ fontWeight: 600 }}>Оплата заказа #{orderId}</div>
         <div style={{ flex: 1 }} />
       </header>
@@ -302,7 +288,7 @@ export function WaiterPayment({ orderId, setRoute }: PaymentProps) {
                 <span>Итого</span><span>{fmtKZT(order.total_amount)}</span>
               </div>
               {discountAmt > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", color: "var(--green)", fontSize: 13, marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", color: "var(--olive)", fontSize: 13, marginBottom: 8 }}>
                   <span>Скидка</span><span>−{fmtKZT(discountAmt)}</span>
                 </div>
               )}
@@ -320,7 +306,6 @@ export function WaiterPayment({ orderId, setRoute }: PaymentProps) {
 
         {/* Right: payment form */}
         <aside style={{ borderLeft: "1px solid var(--line-1)", background: "var(--bg-paper)", overflow: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
-          {/* Payment method */}
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Способ оплаты</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -328,23 +313,22 @@ export function WaiterPayment({ orderId, setRoute }: PaymentProps) {
                 <button
                   key={m.id}
                   className={`btn ${method === m.id ? "primary" : ""}`}
-                  style={{ flexDirection: "column", padding: "14px 8px", height: 72, gap: 4 }}
+                  style={{ flexDirection: "column", padding: "14px 8px", height: 72, gap: 6 }}
                   onClick={() => setMethod(m.id)}
                 >
-                  <span style={{ fontSize: 20 }}>{m.icon}</span>
+                  <Icon name={m.icon} size={20} />
                   <span style={{ fontSize: 12 }}>{m.label}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Discount */}
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Скидка</div>
             <div className="segmented" style={{ marginBottom: discountType !== "none" ? 8 : 0 }}>
-              <button className={discountType === "none" ? "active" : ""} onClick={() => setDiscountType("none")}>Нет</button>
-              <button className={discountType === "amount" ? "active" : ""} onClick={() => setDiscountType("amount")}>₸</button>
-              <button className={discountType === "percent" ? "active" : ""} onClick={() => setDiscountType("percent")}>%</button>
+              <div className={discountType === "none" ? "seg active" : "seg"} onClick={() => setDiscountType("none")}>Нет</div>
+              <div className={discountType === "amount" ? "seg active" : "seg"} onClick={() => setDiscountType("amount")}>₸</div>
+              <div className={discountType === "percent" ? "seg active" : "seg"} onClick={() => setDiscountType("percent")}><Icon name="percent" size={13} /></div>
             </div>
             {discountType !== "none" && (
               <input
@@ -357,7 +341,6 @@ export function WaiterPayment({ orderId, setRoute }: PaymentProps) {
             )}
           </div>
 
-          {/* Tip */}
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Чаевые</div>
             <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
@@ -377,7 +360,6 @@ export function WaiterPayment({ orderId, setRoute }: PaymentProps) {
             <input className="input" type="number" placeholder="Своя сумма чаевых" value={tip} onChange={e => setTip(e.target.value)} />
           </div>
 
-          {/* Cash received */}
           {method === "cash" && (
             <div>
               <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Принято наличными</div>
@@ -389,9 +371,9 @@ export function WaiterPayment({ orderId, setRoute }: PaymentProps) {
                 onChange={e => setReceived(e.target.value)}
               />
               {change > 0 && (
-                <div style={{ marginTop: 10, padding: 12, background: "var(--green)15", border: "1px solid var(--green)30", borderRadius: "var(--r)", textAlign: "center" }}>
+                <div style={{ marginTop: 10, padding: 12, background: "var(--olive-soft)", border: "1px solid var(--olive)", borderRadius: "var(--r)", textAlign: "center" }}>
                   <div style={{ fontSize: 12, color: "var(--ink-3)" }}>Сдача</div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: "var(--green)" }}>{fmtKZT(change)}</div>
+                  <div className="num" style={{ fontSize: 22, fontWeight: 700, color: "var(--olive)" }}>{fmtKZT(change)}</div>
                 </div>
               )}
             </div>
@@ -401,34 +383,32 @@ export function WaiterPayment({ orderId, setRoute }: PaymentProps) {
             className="btn success block lg"
             style={{ marginTop: "auto" }}
             onClick={() => setConfirm(true)}
-            disabled={processing}
+            disabled={processing || (method === "cash" && receivedAmt < finalAmt)}
           >
-            ✓ Принять оплату {fmtKZT(finalAmt)}
+            <Icon name="check" /> Принять оплату {fmtKZT(finalAmt)}
           </button>
         </aside>
       </div>
 
       {confirm && (
-        <div className="scrim" onClick={() => setConfirm(false)}>
-          <div className="modal" style={{ maxWidth: 360 }} onClick={e => e.stopPropagation()}>
-            <div className="modal-head">
-              <div className="modal-title">Подтвердить оплату?</div>
-              <button className="iconbtn borderless" onClick={() => setConfirm(false)}>✕</button>
-            </div>
-            <div className="modal-body">
-              <div style={{ fontSize: 28, fontWeight: 700, textAlign: "center", marginBottom: 8 }}>{fmtKZT(finalAmt)}</div>
-              <div style={{ textAlign: "center", color: "var(--ink-3)", fontSize: 14 }}>
-                {METHODS_MAP[method]} · Заказ #{orderId}
-              </div>
-            </div>
-            <div className="modal-foot">
-              <button className="btn" onClick={() => setConfirm(false)}>Отмена</button>
+        <Modal
+          title="Подтвердить оплату?"
+          onClose={() => setConfirm(false)}
+          footer={
+            <>
+              <button className="btn ghost" onClick={() => setConfirm(false)}>Отмена</button>
               <button className="btn success" onClick={pay} disabled={processing}>
-                {processing ? "Обработка..." : "Подтвердить"}
+                {processing ? <><span className="spin" /> Обработка...</> : "Подтвердить"}
               </button>
-            </div>
+            </>
+          }
+          width={360}
+        >
+          <div className="num" style={{ fontSize: 32, fontWeight: 700, textAlign: "center", marginBottom: 8 }}>{fmtKZT(finalAmt)}</div>
+          <div style={{ textAlign: "center", color: "var(--ink-3)", fontSize: 14 }}>
+            {METHODS_MAP[method]} · Заказ #{orderId}
           </div>
-        </div>
+        </Modal>
       )}
     </>
   );

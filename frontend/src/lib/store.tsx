@@ -351,10 +351,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const refreshShifts = useCallback(async () => {
     if (!state.token) return;
-    const [shifts, current] = await Promise.all([
-      api.shifts(state.token),
-      api.currentShift(state.token),
-    ]);
+    const shifts = await api.shifts(state.token);
+    const current = await api.currentShift(state.token);
     dispatch({ type: "SET_SHIFTS", shifts });
     dispatch({ type: "SET_CURRENT_SHIFT", shift: current });
   }, [state.token]);
@@ -402,6 +400,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!state.token) throw new Error("Not authenticated");
     const payment = await api.createPayment(state.token, payload);
     dispatch({ type: "SET_PAYMENTS", payments: [payment, ...state.payments] });
+    const [order, tables] = await Promise.all([
+      api.order(state.token, payload.order_id),
+      api.tableOverview(state.token),
+    ]);
+    dispatch({ type: "UPSERT_ORDER", order });
+    dispatch({ type: "SET_TABLES", tables });
     return payment;
   }, [state.token, state.payments]);
 
@@ -414,10 +418,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const closeShift = useCallback(async (cash: number, note?: string) => {
     if (!state.token) throw new Error("Not authenticated");
-    const shift = await api.closeShift(state.token, cash, note);
+    if (!state.currentShift) throw new Error("No open shift");
+    const shift = await api.closeShift(state.token, state.currentShift.id, cash, note);
     dispatch({ type: "SET_CURRENT_SHIFT", shift: null });
     return shift;
-  }, [state.token]);
+  }, [state.token, state.currentShift]);
 
   return (
     <Ctx.Provider value={{

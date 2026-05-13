@@ -1,158 +1,172 @@
 import { useState } from "react";
 import { useApp } from "../lib/store";
 import type { Order, TableOverview, TableStatus } from "../types";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function fmtKZT(v: string | number | null | undefined) {
-  if (v == null) return "—";
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  return new Intl.NumberFormat("ru-KZ", { style: "currency", currency: "KZT", maximumFractionDigits: 0 }).format(n);
-}
-
-const TABLE_STATUS_LABEL: Record<TableStatus, string> = {
-  free: "Свободен",
-  occupied: "Занят",
-  reserved: "Бронь",
-  cleaning: "Уборка",
-};
-
-const STATUS_COLOR: Record<TableStatus, string> = {
-  free: "var(--green)",
-  occupied: "var(--brand)",
-  reserved: "var(--amber)",
-  cleaning: "var(--ink-4)",
-};
-
-const ORDER_STATUS_LABEL: Record<string, string> = {
-  pending: "Ожидает",
-  in_progress: "Готовится",
-  ready: "Готов",
-  served: "Подан",
-  paid: "Оплачен",
-  cancelled: "Отменён",
-};
+import { Icon } from "../components/Icon";
+import { StatusBadge, fmtKZT, fmtTime, TABLE_STATUS_LABEL, Modal } from "../components/UI";
 
 // ─── WaiterTables ─────────────────────────────────────────────────────────────
 
-interface WaiterTablesProps {
-  setRoute: (r: { id: string; tableId?: number; orderId?: number }) => void;
+interface SetRoute {
+  (r: { id: string; tableId?: number; orderId?: number }): void;
 }
 
-export function WaiterTables({ setRoute }: WaiterTablesProps) {
+export function WaiterTables({ setRoute }: { setRoute: SetRoute }) {
   const { state, refreshTables } = useApp();
   const [filter, setFilter] = useState<"all" | TableStatus>("all");
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<TableOverview | null>(null);
+  const [openTableId, setOpenTableId] = useState<number | null>(null);
 
   const tables = state.tables.filter(t => {
     if (filter !== "all" && t.status !== filter) return false;
-    if (search && !t.number.toLowerCase().includes(search.toLowerCase()) && !(t.location ?? "").toLowerCase().includes(search.toLowerCase())) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      return t.number.toLowerCase().includes(q) || (t.location ?? "").toLowerCase().includes(q);
+    }
     return true;
   });
 
-  const counts = { all: state.tables.length, free: 0, occupied: 0, reserved: 0, cleaning: 0 };
+  const counts = { all: state.tables.length, free: 0, occupied: 0, reserved: 0, cleaning: 0 } as Record<string, number>;
   state.tables.forEach(t => counts[t.status]++);
 
+  const openTable = openTableId != null ? state.tables.find(t => t.id === openTableId) : null;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      {/* Filter bar */}
-      <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-paper)", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <div className="segmented">
-          {(["all", "free", "occupied", "reserved", "cleaning"] as const).map(s => (
-            <button key={s} className={filter === s ? "active" : ""} onClick={() => setFilter(s)}>
-              {s === "all" ? "Все" : TABLE_STATUS_LABEL[s]}
-              <span style={{ fontSize: 11, opacity: 0.7, marginLeft: 4 }}>{counts[s]}</span>
-            </button>
-          ))}
+    <>
+      <div className="page-head">
+        <div>
+          <h2>Столы</h2>
+          <div className="sub">Касание стола откроет действия</div>
         </div>
-        <input
-          className="input"
-          placeholder="Поиск стола..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ width: 180 }}
-        />
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button className="btn sm" onClick={refreshTables}>Обновить</button>
+        <div className="actions">
+          <div className="segmented">
+            {(["all", "free", "occupied", "reserved", "cleaning"] as const).map(s => (
+              <div key={s} className={`seg ${filter === s ? "active" : ""}`} onClick={() => setFilter(s)}>
+                {s === "all" ? "Все" : TABLE_STATUS_LABEL[s]}
+                <span style={{ color: "var(--ink-4)", fontVariantNumeric: "tabular-nums" }}>{counts[s]}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ position: "relative" }}>
+            <input
+              className="input"
+              placeholder="Поиск стола..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ paddingLeft: 32, minWidth: 180 }}
+            />
+            <Icon name="search" size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--ink-4)" }} />
+          </div>
+          <button className="btn sm" onClick={refreshTables}><Icon name="sort" />Обновить</button>
         </div>
       </div>
 
-      {/* Table grid */}
-      <div style={{ flex: 1, overflow: "auto", padding: 20 }}>
-        {tables.length === 0 ? (
-          <div style={{ padding: "60px 20px", textAlign: "center", color: "var(--ink-3)" }}>Столы не найдены</div>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12 }}>
-            {tables.map(table => (
-              <button
-                key={table.id}
-                onClick={() => setSelected(table)}
-                style={{
-                  background: "var(--bg-paper)",
-                  border: `2px solid ${table.status === "occupied" ? "var(--brand)" : "var(--line-1)"}`,
-                  borderRadius: "var(--r)",
-                  padding: 16,
-                  textAlign: "left",
-                  cursor: "pointer",
-                  color: "inherit",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 8,
-                  minHeight: 130,
-                  transition: "all 120ms ease",
-                  boxShadow: "var(--sh-1)",
-                }}
-                onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "var(--sh-2)"; }}
-                onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = "var(--sh-1)"; }}
-              >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <span style={{ fontWeight: 700, fontSize: 18 }}>№{table.number}</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: STATUS_COLOR[table.status], background: `${STATUS_COLOR[table.status]}20`, padding: "2px 8px", borderRadius: 999 }}>
-                    {TABLE_STATUS_LABEL[table.status]}
-                  </span>
-                </div>
-                <div style={{ fontSize: 12, color: "var(--ink-3)" }}>{table.seats} мест · {table.location || "Зал"}</div>
-                {table.active_order_status && (
-                  <div style={{ marginTop: "auto", fontSize: 12 }}>
-                    <div style={{ color: "var(--ink-3)" }}>Заказ #{table.active_order_id}</div>
-                    <div style={{ fontWeight: 600, color: "var(--ink-1)" }}>{ORDER_STATUS_LABEL[table.active_order_status]}</div>
-                    {table.active_order_total && <div className="num" style={{ fontSize: 11, color: "var(--ink-3)" }}>{fmtKZT(table.active_order_total)}</div>}
-                  </div>
-                )}
-                {table.status === "free" && (
-                  <button
-                    className="btn primary sm"
-                    style={{ marginTop: "auto" }}
-                    onClick={e => { e.stopPropagation(); setRoute({ id: "w_order_create", tableId: table.id }); }}
-                  >
-                    + Заказ
-                  </button>
-                )}
-              </button>
-            ))}
+      <div className="page-body">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
+          {tables.map(t => (
+            <TableTile key={t.id} table={t} onClick={() => setOpenTableId(t.id)} />
+          ))}
+        </div>
+        {!tables.length && (
+          <div className="empty">
+            <div className="empty-ico"><Icon name="tables" size={26} /></div>
+            <h4>Нет столов по фильтру</h4>
+            <p>Сбросьте фильтр или измените поиск.</p>
           </div>
         )}
       </div>
 
-      {/* Table detail modal */}
-      {selected && (
-        <TableModal
-          table={selected}
-          orders={state.orders.filter(o => o.table_id === selected.id)}
-          onClose={() => setSelected(null)}
+      {openTable && (
+        <TableDetailModal
+          table={openTable}
+          orders={state.orders.filter(o => o.table_id === openTable.id)}
+          onClose={() => setOpenTableId(null)}
           setRoute={setRoute}
         />
       )}
-    </div>
+    </>
   );
 }
 
-function TableModal({ table, orders, onClose, setRoute }: {
+// ─── TableTile ────────────────────────────────────────────────────────────────
+
+function TableTile({ table, onClick }: { table: TableOverview; onClick: () => void }) {
+  const sideColor: Record<TableStatus, string> = {
+    free:     "var(--tb-free)",
+    occupied: "var(--tb-occupied)",
+    reserved: "var(--tb-reserved)",
+    cleaning: "var(--tb-cleaning)",
+  };
+  const badgeStyle: Record<TableStatus, React.CSSProperties> = {
+    free:     { background: "var(--olive-soft)",  color: "var(--olive)" },
+    occupied: { background: "var(--brand-50)",    color: "var(--brand-700)" },
+    reserved: { background: "var(--amber-soft)",  color: "var(--amber)" },
+    cleaning: { background: "var(--bg-sunken)",   color: "var(--ink-2)" },
+  };
+
+  const minutesOpen = 0;
+
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        position: "relative", textAlign: "left",
+        background: "var(--bg-paper)",
+        border: "1px solid var(--line-1)",
+        borderLeft: `4px solid ${sideColor[table.status]}`,
+        borderRadius: "var(--r)",
+        padding: "16px 16px 14px",
+        cursor: "pointer", minHeight: 132,
+        display: "flex", flexDirection: "column", gap: 8,
+        boxShadow: "var(--sh-1)", color: "inherit",
+        transition: "transform 120ms ease, box-shadow 120ms ease",
+      }}
+      onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "var(--sh-2)"; }}
+      onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = "var(--sh-1)"; }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start" }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, color: "var(--ink-3)", fontWeight: 500, letterSpacing: "0.04em", textTransform: "uppercase" }}>Стол</div>
+          <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1 }}>{table.number}</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 12, color: "var(--ink-3)" }}>{table.seats} мест · {table.location || "Зал"}</div>
+          <div style={{ marginTop: 6 }}>
+            <span className="badge neutral" style={{ ...badgeStyle[table.status], borderColor: "transparent" }}>
+              <span className="dot" />{TABLE_STATUS_LABEL[table.status]}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {table.active_order_id ? (
+        <div style={{ marginTop: "auto", paddingTop: 10, borderTop: "1px dashed var(--line-1)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontSize: 12, color: "var(--ink-3)" }}>Заказ #{table.active_order_id}</span>
+            <StatusBadge status={table.active_order_status ?? "pending"} />
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span className="num" style={{ fontWeight: 600 }}>{fmtKZT(table.active_order_total ?? 0)}</span>
+            {minutesOpen > 0 && (
+              <span className="mono" style={{ fontSize: 12, color: minutesOpen > 30 ? "var(--pri-urgent)" : "var(--ink-3)" }}>{minutesOpen}м</span>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div style={{ marginTop: "auto", paddingTop: 10, borderTop: "1px dashed var(--line-1)", fontSize: 12, color: "var(--ink-4)" }}>
+          {table.status === "free" ? "Готов принять гостей" : table.status === "reserved" ? "Забронирован" : table.status === "cleaning" ? "Идёт уборка" : "—"}
+        </div>
+      )}
+    </button>
+  );
+}
+
+// ─── TableDetailModal ─────────────────────────────────────────────────────────
+
+function TableDetailModal({ table, orders, onClose, setRoute }: {
   table: TableOverview;
   orders: Order[];
   onClose: () => void;
-  setRoute: (r: { id: string; tableId?: number; orderId?: number }) => void;
+  setRoute: SetRoute;
 }) {
   const { changeStatus, toast, refreshTables } = useApp();
   const activeOrders = orders.filter(o => !["paid", "cancelled"].includes(o.status));
@@ -168,116 +182,132 @@ function TableModal({ table, orders, onClose, setRoute }: {
   };
 
   return (
-    <div className="scrim" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-head">
-          <div>
-            <div className="modal-title">Стол №{table.number}</div>
-            <div style={{ fontSize: 13, color: "var(--ink-3)" }}>{table.seats} мест · {table.location || "Зал"}</div>
-          </div>
-          <button className="iconbtn borderless modal-close" onClick={onClose}>✕</button>
-        </div>
-        <div className="modal-body">
-          {activeOrders.length === 0 ? (
-            <div style={{ padding: "20px 0", textAlign: "center", color: "var(--ink-3)" }}>
-              Активных заказов нет
-            </div>
-          ) : (
-            activeOrders.map(order => (
-              <div key={order.id} style={{ border: "1px solid var(--line-1)", borderRadius: "var(--r)", padding: 14, marginBottom: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                  <span style={{ fontWeight: 600 }}>Заказ #{order.id}</span>
-                  <span className={`badge ${order.status}`}>{ORDER_STATUS_LABEL[order.status]}</span>
-                </div>
-                <div style={{ fontSize: 13, color: "var(--ink-3)", marginBottom: 10 }}>
-                  {order.items.map(i => i.menu_item?.name ?? `#${i.menu_item_id}`).join(", ")}
-                </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <button className="btn sm" onClick={() => { setRoute({ id: "w_order_details", orderId: order.id }); onClose(); }}>Детали</button>
-                  {order.status === "ready" && (
-                    <button className="btn success sm" onClick={() => handleStatus(order.id, "served")}>Подан</button>
-                  )}
-                  {order.status === "served" && (
-                    <button className="btn primary sm" onClick={() => { setRoute({ id: "w_payment", orderId: order.id }); onClose(); }}>Оплата</button>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
+    <Modal
+      title={`Стол ${table.number}`}
+      sub={`${table.seats} мест · ${table.location || "Зал"}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn ghost" onClick={onClose}>Закрыть</button>
           <button
-            className="btn primary block"
-            style={{ marginTop: 8 }}
-            onClick={() => { setRoute({ id: "w_order_create", tableId: table.id }); onClose(); }}
+            className="btn primary"
+            onClick={() => { onClose(); setRoute({ id: "w_order_create", tableId: table.id }); }}
           >
-            + Новый заказ
+            <Icon name="plus" /> Новый заказ
           </button>
+        </>
+      }
+    >
+      {activeOrders.length === 0 ? (
+        <div style={{ padding: "20px 0", textAlign: "center", color: "var(--ink-3)", fontSize: 13, background: "var(--bg-canvas)", borderRadius: "var(--r-sm)" }}>
+          Нет активных заказов на этом столе
         </div>
-      </div>
-    </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {activeOrders.map(o => (
+            <div key={o.id} style={{ padding: 12, border: "1px solid var(--line-1)", borderRadius: "var(--r-sm)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontWeight: 600 }}>#{o.id}</span>
+                <StatusBadge status={o.status} />
+              </div>
+              <div style={{ fontSize: 12, color: "var(--ink-3)", marginBottom: 8 }}>
+                {o.items.length} позиций · {fmtKZT(o.total_amount)} · {fmtTime(o.created_at)}
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="btn sm" onClick={() => { onClose(); setRoute({ id: "w_order_details", orderId: o.id }); }}>
+                  <Icon name="edit" /> Открыть
+                </button>
+                {o.status === "ready" && (
+                  <button className="btn success sm" onClick={() => handleStatus(o.id, "served")}>
+                    <Icon name="check" /> Подан
+                  </button>
+                )}
+                {o.status === "served" && (
+                  <button className="btn primary sm" onClick={() => { onClose(); setRoute({ id: "w_payment", orderId: o.id }); }}>
+                    <Icon name="card" /> Оплата
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
   );
 }
 
 // ─── WaiterOrders ─────────────────────────────────────────────────────────────
 
-interface WaiterOrdersProps {
-  setRoute: (r: { id: string; tableId?: number; orderId?: number }) => void;
-}
-
-export function WaiterOrders({ setRoute }: WaiterOrdersProps) {
+export function WaiterOrders({ setRoute }: { setRoute: SetRoute }) {
   const { state, refreshOrders } = useApp();
-  const [filter, setFilter] = useState<"active" | "all">("active");
+  const [statusFilter, setStatusFilter] = useState("active");
 
   const orders = state.orders.filter(o => {
-    if (filter === "active") return !["paid", "cancelled", "served"].includes(o.status);
+    if (statusFilter === "active") return !["paid", "cancelled"].includes(o.status);
+    if (statusFilter === "ready")  return o.status === "ready";
+    if (statusFilter === "served") return o.status === "served";
+    if (statusFilter === "paid")   return o.status === "paid";
     return true;
   });
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-paper)", display: "flex", gap: 12, alignItems: "center" }}>
-        <div className="segmented">
-          <button className={filter === "active" ? "active" : ""} onClick={() => setFilter("active")}>Активные</button>
-          <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Все</button>
+    <>
+      <div className="page-head">
+        <div>
+          <h2>Мои заказы</h2>
+          <div className="sub">Управляйте активными заказами и оплатой</div>
         </div>
-        <button className="btn sm" style={{ marginLeft: "auto" }} onClick={refreshOrders}>Обновить</button>
+        <div className="actions">
+          <div className="segmented">
+            {[
+              ["active",  "Активные"],
+              ["ready",   "Готовы"],
+              ["served",  "Поданы"],
+              ["paid",    "Оплачены"],
+              ["all",     "Все"],
+            ].map(([k, l]) => (
+              <div key={k} className={`seg ${statusFilter === k ? "active" : ""}`} onClick={() => setStatusFilter(k)}>{l}</div>
+            ))}
+          </div>
+          <button className="btn sm" onClick={refreshOrders}><Icon name="sort" /></button>
+        </div>
       </div>
 
-      <div style={{ flex: 1, overflow: "auto" }}>
-        {orders.length === 0 ? (
-          <div style={{ padding: "60px 20px", textAlign: "center", color: "var(--ink-3)" }}>Заказов нет</div>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr className="list-head">
-                <th>Заказ</th>
-                <th>Стол</th>
-                <th>Статус</th>
-                <th>Позиций</th>
-                <th>Сумма</th>
-                <th>Время</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map(order => (
-                <tr key={order.id} className="list-row" onClick={() => setRoute({ id: "w_order_details", orderId: order.id })} style={{ cursor: "pointer" }}>
-                  <td style={{ fontWeight: 600 }}>#{order.id}</td>
-                  <td>{order.table ? `Стол ${order.table.number}` : `#${order.table_id}`}</td>
-                  <td><span className={`badge ${order.status}`}>{ORDER_STATUS_LABEL[order.status]}</span></td>
-                  <td>{order.items.reduce((s, i) => s + i.quantity, 0)}</td>
-                  <td className="num">{fmtKZT(order.total_amount)}</td>
-                  <td style={{ fontSize: 12, color: "var(--ink-3)" }}>{new Date(order.created_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</td>
-                  <td>
-                    <button className="btn sm" onClick={e => { e.stopPropagation(); setRoute({ id: "w_order_details", orderId: order.id }); }}>
-                      Открыть
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+      <div className="page-body">
+        <div className="card" style={{ overflow: "hidden" }}>
+          <div className="list-head" style={{ gridTemplateColumns: "70px 80px 1.2fr 90px 110px 120px 130px" }}>
+            <div>#</div><div>Стол</div><div>Позиции</div><div>Позиций</div><div>Создан</div><div>Сумма</div><div>Статус</div>
+          </div>
+          {orders.map(o => (
+            <div
+              key={o.id}
+              className="list-row"
+              style={{ gridTemplateColumns: "70px 80px 1.2fr 90px 110px 120px 130px", cursor: "pointer" }}
+              onClick={() => setRoute({ id: "w_order_details", orderId: o.id })}
+            >
+              <div className="mono" style={{ fontWeight: 600 }}>#{o.id}</div>
+              <div style={{ fontWeight: 600 }}>
+                {o.table ? o.table.number : `#${o.table_id}`}
+              </div>
+              <div style={{ fontSize: 12.5, color: "var(--ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {o.items.slice(0, 2).map(i => `${i.quantity}× ${i.menu_item?.name ?? `#${i.menu_item_id}`}`).join(" · ")}
+                {o.items.length > 2 && <span style={{ color: "var(--ink-3)" }}> +{o.items.length - 2}</span>}
+              </div>
+              <div style={{ color: "var(--ink-3)" }}>{o.items.reduce((s, i) => s + i.quantity, 0)} шт.</div>
+              <div className="mono" style={{ fontSize: 12.5 }}>{fmtTime(o.created_at)}</div>
+              <div className="num" style={{ fontWeight: 600 }}>{fmtKZT(o.total_amount)}</div>
+              <div><StatusBadge status={o.status} /></div>
+            </div>
+          ))}
+          {!orders.length && (
+            <div className="empty" style={{ padding: 40 }}>
+              <div className="empty-ico"><Icon name="orders" size={26} /></div>
+              <h4>Нет заказов</h4>
+              <p>Все заказы на этом фильтре закрыты.</p>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

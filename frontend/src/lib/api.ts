@@ -126,6 +126,9 @@ export const api = {
     const suffix = query.size ? `?${query.toString()}` : "";
     return request<Order[]>(`/orders${suffix}`, {}, token);
   },
+  order(token: string, orderId: number) {
+    return request<Order>(`/orders/${orderId}`, {}, token);
+  },
   waiterBoard(token: string) {
     return request<WaiterBoard>("/orders/board/waiter", {}, token);
   },
@@ -202,44 +205,72 @@ export const api = {
     const query = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => { if (v !== undefined) query.set(k, String(v)); });
     const suffix = query.size ? `?${query}` : "";
-    return request<Payment[]>(`/payments${suffix}`, {}, token);
+    return request<Payment[]>(`/pos/payments${suffix}`, {}, token);
   },
-  createPayment(token: string, payload: { order_id: number; method: string; amount_received?: number; discount_type?: string; discount_value?: number; tip_amount?: number }) {
-    return request<Payment>("/payments", { method: "POST", body: JSON.stringify(payload) }, token);
+  async createPayment(token: string, payload: { order_id: number; method: string; amount_received?: number; discount_type?: string; discount_value?: number; tip_amount?: number }) {
+    if (payload.discount_type && payload.discount_value && payload.discount_value > 0) {
+      await api.createDiscount(token, payload.order_id, {
+        discount_type: payload.discount_type as "amount" | "percent",
+        value: payload.discount_value,
+        reason: "Manager-approved POS discount",
+      });
+    }
+
+    const method = payload.method === "qr" || payload.method === "account" ? "external" : payload.method;
+    const amountReceived = payload.amount_received ?? 0;
+    return request<Payment>(
+      `/pos/orders/${payload.order_id}/payments`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          method,
+          amount_received: amountReceived,
+          service_fee_amount: payload.tip_amount ?? 0,
+        }),
+      },
+      token
+    );
   },
 
   // Discounts
   createDiscount(token: string, orderId: number, payload: { discount_type: "amount" | "percent"; value: number; reason?: string }) {
-    return request<OrderDiscount>(`/orders/${orderId}/discount`, { method: "POST", body: JSON.stringify(payload) }, token);
+    return request<OrderDiscount>(`/pos/orders/${orderId}/discounts`, { method: "POST", body: JSON.stringify(payload) }, token);
   },
 
   // Refunds
   refunds(token: string) {
-    return request<Refund[]>("/payments/refunds", {}, token);
+    return request<Refund[]>("/pos/refunds", {}, token);
   },
   createRefund(token: string, paymentId: number, payload: { amount: number; reason: string }) {
-    return request<Refund>(`/payments/${paymentId}/refund`, { method: "POST", body: JSON.stringify(payload) }, token);
+    return request<Refund>(`/pos/payments/${paymentId}/refunds`, { method: "POST", body: JSON.stringify(payload) }, token);
   },
 
   // Shifts
   shifts(token: string) {
-    return request<Shift[]>("/shifts", {}, token);
+    return request<Shift[]>("/pos/shifts", {}, token);
   },
-  currentShift(token: string) {
-    return request<Shift | null>("/shifts/current", {}, token);
+  async currentShift(token: string) {
+    try {
+      return await request<Shift>("/pos/shifts/current", {}, token);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("No open shift")) {
+        return null;
+      }
+      throw err;
+    }
   },
   openShift(token: string, opening_cash_amount: number) {
-    return request<Shift>("/shifts/open", { method: "POST", body: JSON.stringify({ opening_cash_amount }) }, token);
+    return request<Shift>("/pos/shifts/open", { method: "POST", body: JSON.stringify({ opening_cash_amount }) }, token);
   },
-  closeShift(token: string, closing_cash_amount: number, note?: string) {
-    return request<Shift>("/shifts/close", { method: "POST", body: JSON.stringify({ closing_cash_amount, note }) }, token);
+  closeShift(token: string, shiftId: number, closing_cash_amount: number, note?: string) {
+    return request<Shift>(`/pos/shifts/${shiftId}/close`, { method: "POST", body: JSON.stringify({ closing_cash_amount, note }) }, token);
   },
   shiftReport(token: string, shiftId: number) {
-    return request<{ shift: Shift; total_orders: number; total_revenue: string; by_method: Record<string, string> }>(`/shifts/${shiftId}/report`, {}, token);
+    return request<{ shift_id: number; status: string; payments_total: string; refunds_total: string; net_total: string; payments_by_method: Array<{ method: string; count: number; total: string }>; orders_paid: number }>(`/pos/shifts/${shiftId}/report`, {}, token);
   },
 
   // Print jobs
   printJobs(token: string) {
-    return request<PrintJob[]>("/peripherals/print-jobs", {}, token);
+    return request<PrintJob[]>("/peripherals/jobs", {}, token);
   },
 };

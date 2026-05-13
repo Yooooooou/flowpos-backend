@@ -1,14 +1,8 @@
 import { useState } from "react";
 import { useApp } from "../lib/store";
 import type { MenuItem, OrderItemInput, OrderPriority } from "../types";
-
-function fmtKZT(v: number | string | null | undefined) {
-  if (v == null) return "—";
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  return new Intl.NumberFormat("ru-KZ", { style: "currency", currency: "KZT", maximumFractionDigits: 0 }).format(n);
-}
-
-const PRI_LABEL: Record<string, string> = { low: "Низкий", normal: "Обычный", high: "Высокий", urgent: "Срочно" };
+import { Icon } from "../components/Icon";
+import { fmtKZT, PRI_LABEL, Modal, ConfirmModal } from "../components/UI";
 
 interface CartItem {
   menu_item_id: number;
@@ -112,7 +106,7 @@ export function OrderCreate({ tableId, orderId, setRoute }: Props) {
     <>
       <header className="topbar">
         <button className="iconbtn borderless" onClick={() => cart.length ? setConfirmCancel(true) : setRoute({ id: isEdit ? "w_order_details" : "w_tables", orderId })}>
-          ←
+          <Icon name="back" />
         </button>
         <div style={{ fontWeight: 600, fontSize: 15 }}>
           {isEdit ? `Редактирование заказа #${orderId}` : "Новый заказ"}
@@ -121,7 +115,7 @@ export function OrderCreate({ tableId, orderId, setRoute }: Props) {
         <div style={{ flex: 1 }} />
         {!cartOpen && (
           <button className="btn primary" onClick={() => setCartOpen(true)}>
-            🛒 Корзина {totalItems > 0 && `· ${totalItems}`}
+            <Icon name="orders" /> Корзина {totalItems > 0 && `· ${totalItems}`}
           </button>
         )}
       </header>
@@ -141,9 +135,9 @@ export function OrderCreate({ tableId, orderId, setRoute }: Props) {
                 placeholder="Поиск по меню..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                style={{ paddingLeft: 38 }}
+                style={{ paddingLeft: 36 }}
               />
-              <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--ink-4)" }}>🔍</span>
+              <Icon name="search" size={14} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--ink-4)" }} />
             </div>
             <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
               {state.categories.map(c => (
@@ -199,7 +193,9 @@ export function OrderCreate({ tableId, orderId, setRoute }: Props) {
                     {item.description && <div style={{ fontSize: 11.5, color: "var(--ink-3)", lineHeight: 1.4 }}>{item.description}</div>}
                     <div style={{ marginTop: "auto", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span style={{ fontWeight: 600, fontSize: 14 }}>{fmtKZT(item.price)}</span>
-                      <span style={{ fontSize: 11, color: "var(--ink-3)" }}>⏱ {item.preparation_time_minutes}м</span>
+                      <span style={{ fontSize: 11, color: "var(--ink-3)", display: "flex", alignItems: "center", gap: 3 }}>
+                        <Icon name="clock" size={11} /> {item.preparation_time_minutes}м
+                      </span>
                     </div>
                   </button>
                 );
@@ -227,13 +223,13 @@ export function OrderCreate({ tableId, orderId, setRoute }: Props) {
                 <div style={{ fontWeight: 600, fontSize: 14 }}>Корзина {table && `· Стол ${table.number}`}</div>
                 <div style={{ fontSize: 12, color: "var(--ink-3)" }}>{totalItems} поз. · ≈{maxPrep}м</div>
               </div>
-              <button className="iconbtn borderless" onClick={() => setCartOpen(false)}>✕</button>
+              <button className="iconbtn borderless" onClick={() => setCartOpen(false)}><Icon name="x" /></button>
             </div>
 
             <div style={{ flex: 1, overflow: "auto", padding: "8px 0" }}>
               {cart.length === 0 ? (
                 <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--ink-3)" }}>
-                  <div style={{ fontSize: 32, marginBottom: 8 }}>🛒</div>
+                  <Icon name="orders" size={32} style={{ opacity: 0.3, display: "block", margin: "0 auto 12px" }} />
                   <div style={{ fontWeight: 600, color: "var(--ink-1)" }}>Корзина пустая</div>
                   <div style={{ fontSize: 12, marginTop: 4 }}>Нажмите на блюдо, чтобы добавить</div>
                 </div>
@@ -248,9 +244,12 @@ export function OrderCreate({ tableId, orderId, setRoute }: Props) {
                         </div>
                       </div>
                       <button
-                        style={{ width: 28, height: 28, border: 0, background: "none", cursor: "pointer", color: "var(--red)", fontSize: 14 }}
+                        className="iconbtn borderless"
+                        style={{ color: "var(--red)" }}
                         onClick={() => removeItem(idx)}
-                      >🗑</button>
+                      >
+                        <Icon name="trash" size={15} />
+                      </button>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ display: "flex", alignItems: "center", border: "1px solid var(--line-2)", borderRadius: 6, overflow: "hidden" }}>
@@ -263,7 +262,7 @@ export function OrderCreate({ tableId, orderId, setRoute }: Props) {
                         style={{ flex: 1, justifyContent: "flex-start", color: c.note ? "var(--ink-1)" : "var(--ink-3)" }}
                         onClick={() => setEditingItem(idx)}
                       >
-                        📝 {c.note ? (c.note.length > 24 ? c.note.slice(0, 24) + "…" : c.note) : "Комментарий"}
+                        <Icon name="note" size={13} /> {c.note ? (c.note.length > 22 ? c.note.slice(0, 22) + "…" : c.note) : "Комментарий"}
                       </button>
                     </div>
                   </div>
@@ -306,63 +305,50 @@ export function OrderCreate({ tableId, orderId, setRoute }: Props) {
               </div>
 
               <button className="btn primary block lg" disabled={!cart.length || sending} onClick={send}>
-                {sending ? "Отправка..." : isEdit ? "✓ Сохранить" : "→ Отправить на кухню"}
+                {sending
+                  ? <><span className="spin" /> Отправка...</>
+                  : isEdit
+                    ? <><Icon name="check" /> Сохранить</>
+                    : <><Icon name="forward" /> Отправить на кухню</>
+                }
               </button>
             </div>
           </aside>
         )}
       </div>
 
-      {/* Item note modal */}
       {editingItem != null && (
-        <div className="scrim" onClick={() => setEditingItem(null)}>
-          <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
-            <div className="modal-head">
-              <div>
-                <div className="modal-title">Комментарий к позиции</div>
-                <div style={{ fontSize: 13, color: "var(--ink-3)" }}>{cart[editingItem]?.name}</div>
-              </div>
-              <button className="iconbtn borderless" onClick={() => setEditingItem(null)}>✕</button>
-            </div>
-            <div className="modal-body">
-              <textarea
-                className="textarea"
-                autoFocus
-                placeholder="Например: без лука, прожарка medium..."
-                value={cart[editingItem]?.note ?? ""}
-                onChange={e => setItemNote(editingItem, e.target.value)}
-                rows={3}
-              />
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
-                {["Без лука", "Без сахара", "Острее", "Принести позже", "С собой"].map(q => (
-                  <button key={q} className="btn sm" onClick={() => setItemNote(editingItem, q)}>{q}</button>
-                ))}
-              </div>
-            </div>
-            <div className="modal-foot">
-              <button className="btn primary" onClick={() => setEditingItem(null)}>Готово</button>
-            </div>
+        <Modal
+          title="Комментарий к позиции"
+          sub={cart[editingItem]?.name}
+          onClose={() => setEditingItem(null)}
+          footer={<button className="btn primary" onClick={() => setEditingItem(null)}>Готово</button>}
+          width={420}
+        >
+          <textarea
+            className="textarea"
+            autoFocus
+            placeholder="Например: без лука, прожарка medium..."
+            value={cart[editingItem]?.note ?? ""}
+            onChange={e => setItemNote(editingItem, e.target.value)}
+            rows={3}
+          />
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+            {["Без лука", "Без сахара", "Острее", "Принести позже", "С собой"].map(q => (
+              <button key={q} className="btn sm" onClick={() => setItemNote(editingItem, q)}>{q}</button>
+            ))}
           </div>
-        </div>
+        </Modal>
       )}
 
-      {/* Confirm cancel modal */}
       {confirmCancel && (
-        <div className="scrim" onClick={() => setConfirmCancel(false)}>
-          <div className="modal" style={{ maxWidth: 380 }} onClick={e => e.stopPropagation()}>
-            <div className="modal-head">
-              <div className="modal-title">Отменить создание заказа?</div>
-              <button className="iconbtn borderless" onClick={() => setConfirmCancel(false)}>✕</button>
-            </div>
-            <div className="modal-body">
-              <p style={{ color: "var(--ink-3)", margin: 0 }}>Все добавленные позиции будут потеряны.</p>
-            </div>
-            <div className="modal-foot">
-              <button className="btn" onClick={() => setConfirmCancel(false)}>Назад</button>
-              <button className="btn danger" onClick={() => setRoute({ id: "w_tables" })}>Да, отменить</button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          title="Отменить создание заказа?"
+          message="Все добавленные позиции будут потеряны."
+          confirmLabel="Да, отменить"
+          onConfirm={() => setRoute({ id: "w_tables" })}
+          onClose={() => setConfirmCancel(false)}
+        />
       )}
     </>
   );

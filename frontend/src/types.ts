@@ -142,6 +142,8 @@ export interface AnalyticsSummary {
     orders: number;
     revenue: string;
   }>;
+  payments: Array<{ method: "cash" | "card" | "mixed" | "external"; count: number; total: string }>;
+  refunds_total: string;
 }
 
 export interface PeripheralDevice {
@@ -173,38 +175,39 @@ export interface SyncResult {
 export interface Payment {
   id: number;
   order_id: number;
-  shift_id: number | null;
-  method: "cash" | "card" | "qr" | "account";
+  shift_id: number;
+  created_by_id: number;
+  method: "cash" | "card" | "mixed" | "external";
+  external_reference: string | null;
   subtotal_amount: string;
   discount_amount: string;
+  tax_amount: string;
   service_fee_amount: string;
   final_amount: string;
-  amount_received: string | null;
-  change_due: string | null;
+  amount_received: string;
+  change_due: string;
   created_at: string;
-  order?: Order | null;
 }
 
 export interface Shift {
   id: number;
+  opened_by_id: number;
+  closed_by_id: number | null;
   status: "open" | "closed";
-  cashier_id: number;
   opening_cash_amount: string;
   closing_cash_amount: string | null;
   opened_at: string;
   closed_at: string | null;
   note: string | null;
-  cashier?: User | null;
 }
 
 export interface Refund {
   id: number;
   payment_id: number;
+  created_by_id: number;
   amount: string;
   reason: string;
-  status: "pending" | "approved" | "rejected";
   created_at: string;
-  payment?: Payment | null;
 }
 
 export interface OrderDiscount {
@@ -221,9 +224,11 @@ export interface PrintJob {
   device_id: number;
   order_id: number | null;
   job_type: string;
-  status: "pending" | "sent" | "failed";
+  status: "queued" | "processing" | "completed" | "failed";
+  payload: Record<string, unknown>;
+  error_message: string | null;
   created_at: string;
-  device?: PeripheralDevice | null;
+  processed_at: string | null;
 }
 
 export interface LiveEvent {

@@ -83,6 +83,15 @@ def current_shift(
     return shift
 
 
+@router.get("/shifts", response_model=list[ShiftRead])
+def list_shifts(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.manager)),
+) -> list[StaffShift]:
+    return list(db.scalars(select(StaffShift).order_by(StaffShift.opened_at.desc()).limit(limit)))
+
+
 @router.post("/shifts/{shift_id}/close", response_model=ShiftRead)
 def close_shift(
     shift_id: int,
@@ -125,6 +134,18 @@ def create_discount(
     return discount
 
 
+@router.get("/payments", response_model=list[PaymentRead])
+def list_payments(
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.manager, UserRole.waiter)),
+) -> list[Payment]:
+    stmt = select(Payment).join(Order, Order.id == Payment.order_id).order_by(Payment.created_at.desc()).limit(limit)
+    if current_user.role == UserRole.waiter:
+        stmt = stmt.where(Order.waiter_id == current_user.id)
+    return list(db.scalars(stmt))
+
+
 @router.post("/orders/{order_id}/payments", response_model=PaymentRead, status_code=status.HTTP_201_CREATED)
 def create_payment(
     order_id: int,
@@ -151,6 +172,7 @@ def create_payment(
     if payload.amount_received < final_amount:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Payment amount does not cover final total")
 
+    previous_status = order.status
     payment = Payment(
         order_id=order.id,
         shift_id=shift.id,
@@ -174,7 +196,7 @@ def create_payment(
             order=order,
             actor_id=current_user.id,
             event_type="order.paid",
-            from_status=OrderStatus.served,
+            from_status=previous_status,
             to_status=OrderStatus.paid,
             message=f"Paid by {payload.method.value}",
         )
@@ -182,6 +204,15 @@ def create_payment(
     db.commit()
     db.refresh(payment)
     return payment
+
+
+@router.get("/refunds", response_model=list[RefundRead])
+def list_refunds(
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.manager)),
+) -> list[Refund]:
+    return list(db.scalars(select(Refund).order_by(Refund.created_at.desc()).limit(limit)))
 
 
 @router.post("/payments/{payment_id}/refunds", response_model=RefundRead, status_code=status.HTTP_201_CREATED)

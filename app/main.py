@@ -75,6 +75,11 @@ def create_app() -> FastAPI:
     def metrics() -> Response:
         return Response(render_metrics(), media_type="text/plain; version=0.0.4")
 
+    if not settings.docs_enabled:
+        @application.get("/docs", include_in_schema=False)
+        def disabled_docs() -> Response:
+            return Response(status_code=status.HTTP_404_NOT_FOUND)
+
     # Serve built frontend (if present)
     dist = Path(__file__).parent.parent / "frontend" / "dist"
     if dist.exists():

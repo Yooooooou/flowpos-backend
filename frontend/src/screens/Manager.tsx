@@ -11,19 +11,9 @@ import type {
   TableStatus,
   User,
 } from "../types";
+import { Icon } from "../components/Icon";
+import { StatusBadge, PriorityChip, fmtKZT, fmtTime, Metric, Modal, ConfirmModal } from "../components/UI";
 
-function fmtKZT(v: string | number | null | undefined) {
-  if (v == null) return "—";
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  return new Intl.NumberFormat("ru-KZ", { style: "currency", currency: "KZT", maximumFractionDigits: 0 }).format(n);
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  pending: "Ожидает", in_progress: "Готовится", ready: "Готово",
-  served: "Подан", paid: "Оплачен", cancelled: "Отменён",
-};
-
-const PRI_LABEL: Record<string, string> = { low: "Низкий", normal: "Обычный", high: "Высокий", urgent: "Срочно" };
 const ROLE_LABEL: Record<string, string> = { manager: "Менеджер", waiter: "Официант", kitchen: "Кухня" };
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -46,51 +36,37 @@ export function ManagerDashboard() {
 
   return (
     <div style={{ overflow: "auto", padding: 24 }}>
-      {/* Metrics */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12, marginBottom: 24 }}>
-        {[
-          { label: "Активные заказы", value: activeOrders.length, accent: "var(--brand)" },
-          { label: "Выручка сегодня", value: fmtKZT(revenue), accent: "var(--green)" },
-          { label: "Оплаченных", value: paidOrders.length, accent: "var(--green)" },
-          { label: "Занято столов", value: state.tables.filter(t => t.status === "occupied").length, accent: "var(--amber)" },
-          { label: "Всего заказов", value: orders.length, accent: "var(--ink-3)" },
-        ].map(m => (
-          <div key={m.label} className="card metric">
-            <div className="metric-label">{m.label}</div>
-            <div className="metric-value" style={{ color: m.accent }}>{m.value}</div>
-          </div>
-        ))}
+        <Metric label="Активные заказы" value={activeOrders.length} icon="orders" />
+        <Metric label="Выручка сегодня"  value={fmtKZT(revenue)}       icon="money"  />
+        <Metric label="Оплаченных"       value={paidOrders.length}      icon="check"  />
+        <Metric label="Занято столов"    value={state.tables.filter(t => t.status === "occupied").length} icon="tables" />
+        <Metric label="Всего заказов"    value={orders.length}          icon="analytics" />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 16, marginBottom: 24 }}>
-        {/* Active orders table */}
+        {/* Active orders */}
         <div className="card">
           <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ fontWeight: 600 }}>Активные заказы</div>
-            <button className="btn sm" onClick={refreshOrders}>Обновить</button>
+            <button className="btn sm" onClick={refreshOrders}><Icon name="sort" /> Обновить</button>
           </div>
           <div style={{ overflow: "auto", maxHeight: 340 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr className="list-head">
-                  <th>Заказ</th><th>Стол</th><th>Статус</th><th>Сумма</th><th>Время</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activeOrders.slice(0, 10).map(o => (
-                  <tr key={o.id} className="list-row">
-                    <td style={{ fontWeight: 600 }}>#{o.id}</td>
-                    <td>{o.table ? `Стол ${o.table.number}` : `#${o.table_id}`}</td>
-                    <td><span className={`badge ${o.status}`}>{STATUS_LABEL[o.status]}</span></td>
-                    <td>{fmtKZT(o.total_amount)}</td>
-                    <td style={{ fontSize: 12, color: "var(--ink-3)" }}>{new Date(o.created_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</td>
-                  </tr>
-                ))}
-                {activeOrders.length === 0 && (
-                  <tr><td colSpan={5} style={{ padding: 24, textAlign: "center", color: "var(--ink-3)" }}>Нет активных заказов</td></tr>
-                )}
-              </tbody>
-            </table>
+            <div className="list-head" style={{ gridTemplateColumns: "60px 80px 100px 110px 90px" }}>
+              <div>Заказ</div><div>Стол</div><div>Статус</div><div>Сумма</div><div>Время</div>
+            </div>
+            {activeOrders.slice(0, 10).map(o => (
+              <div key={o.id} className="list-row" style={{ gridTemplateColumns: "60px 80px 100px 110px 90px" }}>
+                <div className="mono" style={{ fontWeight: 600 }}>#{o.id}</div>
+                <div>{o.table ? `Стол ${o.table.number}` : `#${o.table_id}`}</div>
+                <div><StatusBadge status={o.status} /></div>
+                <div className="num">{fmtKZT(o.total_amount)}</div>
+                <div className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{fmtTime(o.created_at)}</div>
+              </div>
+            ))}
+            {activeOrders.length === 0 && (
+              <div style={{ padding: 24, textAlign: "center", color: "var(--ink-3)", fontSize: 13 }}>Нет активных заказов</div>
+            )}
           </div>
         </div>
 
@@ -139,42 +115,48 @@ export function ManagerOrders() {
     }
   };
 
+  const STATUS_OPTIONS: Array<{ value: OrderStatus | "all"; label: string }> = [
+    { value: "all", label: "Все статусы" },
+    { value: "pending", label: "Ожидает" },
+    { value: "in_progress", label: "Готовится" },
+    { value: "ready", label: "Готово" },
+    { value: "served", label: "Подан" },
+    { value: "paid", label: "Оплачен" },
+    { value: "cancelled", label: "Отменён" },
+  ];
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-paper)", display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         <select className="select" value={statusFilter} onChange={e => setStatusFilter(e.target.value as OrderStatus | "all")} style={{ width: 160 }}>
-          <option value="all">Все статусы</option>
-          {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
-        <input className="input" placeholder="Поиск по номеру..." value={search} onChange={e => setSearch(e.target.value)} style={{ width: 200 }} />
-        <button className="btn sm" style={{ marginLeft: "auto" }} onClick={refreshOrders}>Обновить</button>
+        <div style={{ position: "relative" }}>
+          <input className="input" placeholder="Поиск по номеру..." value={search} onChange={e => setSearch(e.target.value)} style={{ width: 200, paddingLeft: 32 }} />
+          <Icon name="search" size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--ink-4)" }} />
+        </div>
+        <button className="btn sm" style={{ marginLeft: "auto" }} onClick={refreshOrders}><Icon name="sort" /> Обновить</button>
       </div>
       <div style={{ flex: 1, overflow: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr className="list-head">
-              <th>№</th><th>Стол</th><th>Официант</th><th>Статус</th><th>Приоритет</th><th>Позиций</th><th>Сумма</th><th>Создан</th><th>Действие</th>
-            </tr>
-          </thead>
-          <tbody>
-            {orders.map(o => (
-              <tr key={o.id} className="list-row">
-                <td style={{ fontWeight: 600 }}>#{o.id}</td>
-                <td>{o.table ? `Стол ${o.table.number}` : `#${o.table_id}`}</td>
-                <td style={{ fontSize: 13 }}>{o.waiter?.full_name ?? "—"}</td>
-                <td><span className={`badge ${o.status}`}>{STATUS_LABEL[o.status]}</span></td>
-                <td><span className={`pri ${o.priority}`}>{PRI_LABEL[o.priority]}</span></td>
-                <td>{o.items.reduce((s, i) => s + i.quantity, 0)}</td>
-                <td>{fmtKZT(o.total_amount)}</td>
-                <td style={{ fontSize: 12, color: "var(--ink-3)" }}>{new Date(o.created_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</td>
-                <td>
-                  {o.status === "pending" && <button className="btn sm" onClick={() => handleStatus(o.id, "cancelled")}>Отменить</button>}
-                  {o.status === "served" && <button className="btn success sm" onClick={() => handleStatus(o.id, "paid")}>Оплачен</button>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="list-head" style={{ gridTemplateColumns: "60px 80px 120px 100px 90px 60px 110px 90px 110px" }}>
+          <div>#</div><div>Стол</div><div>Официант</div><div>Статус</div><div>Приоритет</div><div>Шт.</div><div>Сумма</div><div>Создан</div><div>Действие</div>
+        </div>
+        {orders.map(o => (
+          <div key={o.id} className="list-row" style={{ gridTemplateColumns: "60px 80px 120px 100px 90px 60px 110px 90px 110px" }}>
+            <div className="mono" style={{ fontWeight: 600 }}>#{o.id}</div>
+            <div>{o.table ? `Стол ${o.table.number}` : `#${o.table_id}`}</div>
+            <div style={{ fontSize: 13 }}>{o.waiter?.full_name ?? "—"}</div>
+            <div><StatusBadge status={o.status} /></div>
+            <div><PriorityChip priority={o.priority} showLabel={false} /></div>
+            <div style={{ color: "var(--ink-3)" }}>{o.items.reduce((s, i) => s + i.quantity, 0)}</div>
+            <div className="num">{fmtKZT(o.total_amount)}</div>
+            <div className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{fmtTime(o.created_at)}</div>
+            <div style={{ display: "flex", gap: 4 }}>
+              {o.status === "pending" && <button className="btn sm danger" onClick={() => handleStatus(o.id, "cancelled")}>Отменить</button>}
+              {o.status === "served" && <button className="btn sm success" onClick={() => handleStatus(o.id, "paid")}><Icon name="check" /> Оплачен</button>}
+            </div>
+          </div>
+        ))}
         {orders.length === 0 && <div style={{ padding: 60, textAlign: "center", color: "var(--ink-3)" }}>Заказов нет</div>}
       </div>
     </div>
@@ -192,6 +174,8 @@ export function ManagerMenu() {
   const [form, setForm] = useState<Partial<MenuItem>>({});
 
   const items = state.items.filter(i => i.category_id === activeCat);
+
+  const closeForm = () => { setEditItem(null); setNewItem(false); };
 
   const save = async () => {
     try {
@@ -212,8 +196,7 @@ export function ManagerMenu() {
         toast("success", "Блюдо добавлено");
       }
       await refreshMenu();
-      setEditItem(null);
-      setNewItem(false);
+      closeForm();
     } catch (e: unknown) {
       toast("error", e instanceof Error ? e.message : "Ошибка");
     }
@@ -231,11 +214,11 @@ export function ManagerMenu() {
               width: "100%",
               padding: "10px 16px",
               textAlign: "left",
-              background: activeCat === c.id ? "var(--brand)15" : "none",
+              background: activeCat === c.id ? "var(--brand-50)" : "none",
               border: 0,
               borderLeft: `3px solid ${activeCat === c.id ? "var(--brand)" : "transparent"}`,
               cursor: "pointer",
-              color: activeCat === c.id ? "var(--brand)" : "var(--ink-1)",
+              color: activeCat === c.id ? "var(--brand-700)" : "var(--ink-1)",
               fontWeight: activeCat === c.id ? 600 : 400,
               fontSize: 13,
             }}
@@ -250,84 +233,78 @@ export function ManagerMenu() {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line-1)", display: "flex", gap: 8 }}>
           <button className="btn primary sm" onClick={() => { setForm({ category_id: activeCat, is_available: true }); setNewItem(true); setEditItem(null); }}>
-            + Добавить блюдо
+            <Icon name="plus" /> Добавить блюдо
           </button>
-          <button className="btn sm" style={{ marginLeft: "auto" }} onClick={refreshMenu}>Обновить</button>
+          <button className="btn sm" style={{ marginLeft: "auto" }} onClick={refreshMenu}><Icon name="sort" /> Обновить</button>
         </div>
         <div style={{ flex: 1, overflow: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr className="list-head">
-                <th>Название</th><th>Описание</th><th>Цена</th><th>Время</th><th>Доступно</th><th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map(item => (
-                <tr key={item.id} className="list-row">
-                  <td style={{ fontWeight: 500 }}>{item.name}</td>
-                  <td style={{ fontSize: 12, color: "var(--ink-3)", maxWidth: 200 }}>{item.description ?? "—"}</td>
-                  <td>{fmtKZT(item.price)}</td>
-                  <td>{item.preparation_time_minutes}м</td>
-                  <td>
-                    <span style={{ color: item.is_available ? "var(--green)" : "var(--red)", fontWeight: 600, fontSize: 12 }}>
-                      {item.is_available ? "Да" : "Нет"}
-                    </span>
-                  </td>
-                  <td>
-                    <button className="btn sm" onClick={() => { setForm({ ...item }); setEditItem(item); setNewItem(false); }}>
-                      ✏️
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {items.length === 0 && <tr><td colSpan={6} style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}>В этой категории нет блюд</td></tr>}
-            </tbody>
-          </table>
+          <div className="list-head" style={{ gridTemplateColumns: "1.5fr 2fr 100px 70px 80px 50px" }}>
+            <div>Название</div><div>Описание</div><div>Цена</div><div>Время</div><div>Доступно</div><div></div>
+          </div>
+          {items.map(item => (
+            <div key={item.id} className="list-row" style={{ gridTemplateColumns: "1.5fr 2fr 100px 70px 80px 50px" }}>
+              <div style={{ fontWeight: 500 }}>{item.name}</div>
+              <div style={{ fontSize: 12, color: "var(--ink-3)" }}>{item.description ?? "—"}</div>
+              <div className="num">{fmtKZT(item.price)}</div>
+              <div style={{ color: "var(--ink-3)" }}>{item.preparation_time_minutes}м</div>
+              <div>
+                <span style={{ color: item.is_available ? "var(--olive)" : "var(--red)", fontWeight: 600, fontSize: 12 }}>
+                  {item.is_available ? "Да" : "Нет"}
+                </span>
+              </div>
+              <div>
+                <button className="iconbtn borderless" onClick={() => { setForm({ ...item }); setEditItem(item); setNewItem(false); }}>
+                  <Icon name="edit" size={15} />
+                </button>
+              </div>
+            </div>
+          ))}
+          {items.length === 0 && (
+            <div style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}>В этой категории нет блюд</div>
+          )}
         </div>
       </div>
 
-      {/* Edit modal */}
       {(editItem || newItem) && (
-        <div className="scrim" onClick={() => { setEditItem(null); setNewItem(false); }}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-head">
-              <div className="modal-title">{editItem ? "Редактировать блюдо" : "Новое блюдо"}</div>
-              <button className="iconbtn borderless" onClick={() => { setEditItem(null); setNewItem(false); }}>✕</button>
-            </div>
-            <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div className="field">
-                <label className="field-label">Название</label>
-                <input className="input" value={form.name ?? ""} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
-              </div>
-              <div className="field">
-                <label className="field-label">Описание</label>
-                <textarea className="textarea" value={form.description ?? ""} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={2} />
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div className="field">
-                  <label className="field-label">Цена (₸)</label>
-                  <input className="input" type="number" value={form.price ?? ""} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} />
-                </div>
-                <div className="field">
-                  <label className="field-label">Время готовки (мин)</label>
-                  <input className="input" type="number" value={form.preparation_time_minutes ?? ""} onChange={e => setForm(f => ({ ...f, preparation_time_minutes: parseInt(e.target.value) || 0 }))} />
-                </div>
-              </div>
-              {editItem && (
-                <div className="field">
-                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                    <input type="checkbox" checked={form.is_available ?? true} onChange={e => setForm(f => ({ ...f, is_available: e.target.checked }))} />
-                    <span>Доступно для заказа</span>
-                  </label>
-                </div>
-              )}
-            </div>
-            <div className="modal-foot">
-              <button className="btn" onClick={() => { setEditItem(null); setNewItem(false); }}>Отмена</button>
+        <Modal
+          title={editItem ? "Редактировать блюдо" : "Новое блюдо"}
+          onClose={closeForm}
+          footer={
+            <>
+              <button className="btn ghost" onClick={closeForm}>Отмена</button>
               <button className="btn primary" onClick={save}>Сохранить</button>
+            </>
+          }
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className="field">
+              <label className="field-label">Название</label>
+              <input className="input" value={form.name ?? ""} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
+            <div className="field">
+              <label className="field-label">Описание</label>
+              <textarea className="textarea" value={form.description ?? ""} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={2} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div className="field">
+                <label className="field-label">Цена (₸)</label>
+                <input className="input" type="number" value={form.price ?? ""} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} />
+              </div>
+              <div className="field">
+                <label className="field-label">Время готовки (мин)</label>
+                <input className="input" type="number" value={form.preparation_time_minutes ?? ""} onChange={e => setForm(f => ({ ...f, preparation_time_minutes: parseInt(e.target.value) || 0 }))} />
+              </div>
+            </div>
+            {editItem && (
+              <div className="field">
+                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                  <input type="checkbox" checked={form.is_available ?? true} onChange={e => setForm(f => ({ ...f, is_available: e.target.checked }))} />
+                  <span>Доступно для заказа</span>
+                </label>
+              </div>
+            )}
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
@@ -336,10 +313,10 @@ export function ManagerMenu() {
 // ─── Manager Tables ───────────────────────────────────────────────────────────
 
 const TABLE_STATUS_OPTIONS: { value: TableStatus; label: string }[] = [
-  { value: "free", label: "Свободен" },
-  { value: "occupied", label: "Занят" },
-  { value: "reserved", label: "Бронь" },
-  { value: "cleaning", label: "Уборка" },
+  { value: "free",     label: "Свободен" },
+  { value: "occupied", label: "Занят"    },
+  { value: "reserved", label: "Бронь"    },
+  { value: "cleaning", label: "Уборка"   },
 ];
 
 export function ManagerTables() {
@@ -348,6 +325,8 @@ export function ManagerTables() {
   const [editTable, setEditTable] = useState<Table | null>(null);
   const [form, setForm] = useState<Partial<Table>>({});
   const [showNew, setShowNew] = useState(false);
+
+  const closeForm = () => { setEditTable(null); setShowNew(false); };
 
   const saveTable = async () => {
     try {
@@ -359,8 +338,7 @@ export function ManagerTables() {
         toast("success", "Стол добавлен");
       }
       await refreshTables();
-      setEditTable(null);
-      setShowNew(false);
+      closeForm();
     } catch (e: unknown) {
       toast("error", e instanceof Error ? e.message : "Ошибка");
     }
@@ -370,69 +348,73 @@ export function ManagerTables() {
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--line-1)", display: "flex", gap: 8 }}>
         <button className="btn primary sm" onClick={() => { setForm({ seats: 4, status: "free" }); setShowNew(true); setEditTable(null); }}>
-          + Добавить стол
+          <Icon name="plus" /> Добавить стол
         </button>
-        <button className="btn sm" style={{ marginLeft: "auto" }} onClick={refreshTables}>Обновить</button>
+        <button className="btn sm" style={{ marginLeft: "auto" }} onClick={refreshTables}><Icon name="sort" /> Обновить</button>
       </div>
       <div style={{ flex: 1, overflow: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr className="list-head"><th>№ стола</th><th>Мест</th><th>Локация</th><th>Статус</th><th></th></tr>
-          </thead>
-          <tbody>
-            {state.tables.map(t => (
-              <tr key={t.id} className="list-row">
-                <td style={{ fontWeight: 600 }}>Стол {t.number}</td>
-                <td>{t.seats}</td>
-                <td style={{ color: "var(--ink-3)" }}>{t.location ?? "—"}</td>
-                <td>
-                  <select
-                    className="select"
-                    value={t.status}
-                    onChange={async e => {
-                      try {
-                        await api.updateTable(token, t.id, { status: e.target.value as TableStatus });
-                        await refreshTables();
-                      } catch { toast("error", "Ошибка"); }
-                    }}
-                    style={{ width: 140 }}
-                  >
-                    {TABLE_STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
-                </td>
-                <td>
-                  <button className="btn sm" onClick={() => { setForm({ ...t }); setEditTable(t as unknown as Table); setShowNew(false); }}>✏️</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="list-head" style={{ gridTemplateColumns: "120px 70px 1fr 160px 50px" }}>
+          <div>№ стола</div><div>Мест</div><div>Локация</div><div>Статус</div><div></div>
+        </div>
+        {state.tables.map(t => (
+          <div key={t.id} className="list-row" style={{ gridTemplateColumns: "120px 70px 1fr 160px 50px" }}>
+            <div style={{ fontWeight: 600 }}>Стол {t.number}</div>
+            <div>{t.seats}</div>
+            <div style={{ color: "var(--ink-3)" }}>{t.location ?? "—"}</div>
+            <div>
+              <select
+                className="select"
+                value={t.status}
+                onChange={async e => {
+                  try {
+                    await api.updateTable(token, t.id, { status: e.target.value as TableStatus });
+                    await refreshTables();
+                  } catch { toast("error", "Ошибка"); }
+                }}
+                style={{ width: 140 }}
+              >
+                {TABLE_STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <button className="iconbtn borderless" onClick={() => { setForm({ ...t }); setEditTable(t as unknown as Table); setShowNew(false); }}>
+                <Icon name="edit" size={15} />
+              </button>
+            </div>
+          </div>
+        ))}
+        {state.tables.length === 0 && (
+          <div style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}>Столов нет</div>
+        )}
       </div>
 
       {(editTable || showNew) && (
-        <div className="scrim" onClick={() => { setEditTable(null); setShowNew(false); }}>
-          <div className="modal" style={{ maxWidth: 380 }} onClick={e => e.stopPropagation()}>
-            <div className="modal-head">
-              <div className="modal-title">{editTable ? "Редактировать стол" : "Новый стол"}</div>
-              <button className="iconbtn borderless" onClick={() => { setEditTable(null); setShowNew(false); }}>✕</button>
-            </div>
-            <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div className="field"><label className="field-label">Номер стола</label>
-                <input className="input" value={form.number ?? ""} onChange={e => setForm(f => ({ ...f, number: e.target.value }))} />
-              </div>
-              <div className="field"><label className="field-label">Мест</label>
-                <input className="input" type="number" value={form.seats ?? ""} onChange={e => setForm(f => ({ ...f, seats: parseInt(e.target.value) || 4 }))} />
-              </div>
-              <div className="field"><label className="field-label">Локация</label>
-                <input className="input" value={form.location ?? ""} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} />
-              </div>
-            </div>
-            <div className="modal-foot">
-              <button className="btn" onClick={() => { setEditTable(null); setShowNew(false); }}>Отмена</button>
+        <Modal
+          title={editTable ? "Редактировать стол" : "Новый стол"}
+          onClose={closeForm}
+          footer={
+            <>
+              <button className="btn ghost" onClick={closeForm}>Отмена</button>
               <button className="btn primary" onClick={saveTable}>Сохранить</button>
+            </>
+          }
+          width={380}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className="field">
+              <label className="field-label">Номер стола</label>
+              <input className="input" value={form.number ?? ""} onChange={e => setForm(f => ({ ...f, number: e.target.value }))} />
+            </div>
+            <div className="field">
+              <label className="field-label">Мест</label>
+              <input className="input" type="number" value={form.seats ?? ""} onChange={e => setForm(f => ({ ...f, seats: parseInt(e.target.value) || 4 }))} />
+            </div>
+            <div className="field">
+              <label className="field-label">Локация</label>
+              <input className="input" value={form.location ?? ""} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} />
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
@@ -452,6 +434,8 @@ export function ManagerUsers() {
     api.users(token).then(setUsers).catch(() => toast("error", "Ошибка загрузки пользователей"));
   }, [token]);
 
+  const closeForm = () => { setEditUser(null); setShowNew(false); };
+
   const save = async () => {
     try {
       if (editUser) {
@@ -463,8 +447,7 @@ export function ManagerUsers() {
       }
       const updated = await api.users(token);
       setUsers(updated);
-      setEditUser(null);
-      setShowNew(false);
+      closeForm();
     } catch (e: unknown) {
       toast("error", e instanceof Error ? e.message : "Ошибка");
     }
@@ -474,73 +457,82 @@ export function ManagerUsers() {
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--line-1)", display: "flex" }}>
         <button className="btn primary sm" onClick={() => { setForm({ role: "waiter", is_active: true }); setShowNew(true); setEditUser(null); }}>
-          + Добавить сотрудника
+          <Icon name="plus" /> Добавить сотрудника
         </button>
       </div>
       <div style={{ flex: 1, overflow: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr className="list-head"><th>Имя</th><th>Логин</th><th>Роль</th><th>Активен</th><th></th></tr>
-          </thead>
-          <tbody>
-            {users.map(u => (
-              <tr key={u.id} className="list-row">
-                <td style={{ fontWeight: 500 }}>{u.full_name}</td>
-                <td style={{ color: "var(--ink-3)" }}>{u.username}</td>
-                <td><span className={`badge ${u.role}`}>{ROLE_LABEL[u.role]}</span></td>
-                <td>
-                  <span style={{ color: u.is_active ? "var(--green)" : "var(--red)", fontWeight: 600, fontSize: 12 }}>
-                    {u.is_active ? "Да" : "Нет"}
-                  </span>
-                </td>
-                <td>
-                  <button className="btn sm" onClick={() => { setForm({ ...u }); setEditUser(u); setShowNew(false); }}>✏️</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="list-head" style={{ gridTemplateColumns: "1.5fr 1fr 100px 80px 50px" }}>
+          <div>Имя</div><div>Логин</div><div>Роль</div><div>Активен</div><div></div>
+        </div>
+        {users.map(u => (
+          <div key={u.id} className="list-row" style={{ gridTemplateColumns: "1.5fr 1fr 100px 80px 50px" }}>
+            <div style={{ fontWeight: 500 }}>{u.full_name}</div>
+            <div style={{ color: "var(--ink-3)", fontSize: 13 }}>{u.username}</div>
+            <div><span className="badge neutral">{ROLE_LABEL[u.role]}</span></div>
+            <div>
+              <span style={{ color: u.is_active ? "var(--olive)" : "var(--red)", fontWeight: 600, fontSize: 12 }}>
+                {u.is_active ? "Да" : "Нет"}
+              </span>
+            </div>
+            <div>
+              <button className="iconbtn borderless" onClick={() => { setForm({ ...u }); setEditUser(u); setShowNew(false); }}>
+                <Icon name="edit" size={15} />
+              </button>
+            </div>
+          </div>
+        ))}
+        {users.length === 0 && (
+          <div style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}>Сотрудников нет</div>
+        )}
       </div>
 
       {(editUser || showNew) && (
-        <div className="scrim" onClick={() => { setEditUser(null); setShowNew(false); }}>
-          <div className="modal" style={{ maxWidth: 380 }} onClick={e => e.stopPropagation()}>
-            <div className="modal-head">
-              <div className="modal-title">{editUser ? "Редактировать сотрудника" : "Новый сотрудник"}</div>
-              <button className="iconbtn borderless" onClick={() => { setEditUser(null); setShowNew(false); }}>✕</button>
+        <Modal
+          title={editUser ? "Редактировать сотрудника" : "Новый сотрудник"}
+          onClose={closeForm}
+          footer={
+            <>
+              <button className="btn ghost" onClick={closeForm}>Отмена</button>
+              <button className="btn primary" onClick={save}>Сохранить</button>
+            </>
+          }
+          width={380}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className="field">
+              <label className="field-label">Полное имя</label>
+              <input className="input" value={form.full_name ?? ""} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} />
             </div>
-            <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div className="field"><label className="field-label">Полное имя</label>
-                <input className="input" value={form.full_name ?? ""} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} />
-              </div>
-              {!editUser && <>
-                <div className="field"><label className="field-label">Логин</label>
+            {!editUser && (
+              <>
+                <div className="field">
+                  <label className="field-label">Логин</label>
                   <input className="input" value={form.username ?? ""} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} />
                 </div>
-                <div className="field"><label className="field-label">Пароль</label>
+                <div className="field">
+                  <label className="field-label">Пароль</label>
                   <input className="input" type="password" value={form.password ?? ""} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} />
                 </div>
-              </>}
-              <div className="field"><label className="field-label">Роль</label>
-                <select className="select" value={form.role ?? "waiter"} onChange={e => setForm(f => ({ ...f, role: e.target.value as User["role"] }))}>
-                  <option value="waiter">Официант</option>
-                  <option value="kitchen">Кухня</option>
-                  <option value="manager">Менеджер</option>
-                </select>
-              </div>
-              {editUser && <div className="field">
+              </>
+            )}
+            <div className="field">
+              <label className="field-label">Роль</label>
+              <select className="select" value={form.role ?? "waiter"} onChange={e => setForm(f => ({ ...f, role: e.target.value as User["role"] }))}>
+                <option value="waiter">Официант</option>
+                <option value="kitchen">Кухня</option>
+                <option value="manager">Менеджер</option>
+              </select>
+            </div>
+            {editUser && (
+              <div className="field">
                 <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
                   <input type="checkbox" checked={form.is_active ?? true} onChange={e => setForm(f => ({ ...f, is_active: e.target.checked }))} />
                   <span>Активен</span>
                 </label>
-              </div>}
-            </div>
-            <div className="modal-foot">
-              <button className="btn" onClick={() => { setEditUser(null); setShowNew(false); }}>Отмена</button>
-              <button className="btn primary" onClick={save}>Сохранить</button>
-            </div>
+              </div>
+            )}
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
@@ -558,45 +550,41 @@ export function ManagerPayments() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--line-1)", display: "flex", gap: 16, flexWrap: "wrap" }}>
-        {[
-          { label: "Всего платежей", value: payments.length },
-          { label: "Выручка", value: fmtKZT(totalRevenue) },
-          { label: "Наличные", value: payments.filter(p => p.method === "cash").length },
-          { label: "Карта", value: payments.filter(p => p.method === "card").length },
-        ].map(m => (
-          <div key={m.label} style={{ background: "var(--bg-sunken)", borderRadius: "var(--r)", padding: "8px 16px" }}>
-            <div style={{ fontSize: 11, color: "var(--ink-3)" }}>{m.label}</div>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>{m.value}</div>
-          </div>
-        ))}
-        <button className="btn sm" style={{ marginLeft: "auto" }} onClick={refreshPayments}>Обновить</button>
+      <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--line-1)", display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <Metric label="Платежей" value={payments.length} icon="receipt" />
+        <Metric label="Выручка" value={fmtKZT(totalRevenue)} icon="money" />
+        <Metric label="Наличные" value={payments.filter(p => p.method === "cash").length} icon="cash" />
+        <Metric label="Карта" value={payments.filter(p => p.method === "card").length} icon="card" />
+        <button className="btn sm" style={{ marginLeft: "auto" }} onClick={refreshPayments}><Icon name="sort" /> Обновить</button>
       </div>
       <div style={{ flex: 1, overflow: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr className="list-head"><th>ID</th><th>Заказ</th><th>Метод</th><th>Скидка</th><th>Итого</th><th>Время</th></tr>
-          </thead>
-          <tbody>
-            {payments.map(p => (
-              <tr key={p.id} className="list-row">
-                <td style={{ fontWeight: 500 }}>#{p.id}</td>
-                <td>#{p.order_id}</td>
-                <td>{PAYMENT_METHOD[p.method] ?? p.method}</td>
-                <td style={{ color: "var(--green)" }}>{parseFloat(p.discount_amount) > 0 ? `−${fmtKZT(p.discount_amount)}` : "—"}</td>
-                <td style={{ fontWeight: 600 }}>{fmtKZT(p.final_amount)}</td>
-                <td style={{ fontSize: 12, color: "var(--ink-3)" }}>{new Date(p.created_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
-              </tr>
-            ))}
-            {payments.length === 0 && <tr><td colSpan={6} style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}>Платежей нет</td></tr>}
-          </tbody>
-        </table>
+        <div className="list-head" style={{ gridTemplateColumns: "60px 80px 120px 120px 120px 130px" }}>
+          <div>ID</div><div>Заказ</div><div>Метод</div><div>Скидка</div><div>Итого</div><div>Время</div>
+        </div>
+        {payments.map(p => (
+          <div key={p.id} className="list-row" style={{ gridTemplateColumns: "60px 80px 120px 120px 120px 130px" }}>
+            <div className="mono" style={{ fontWeight: 500 }}>#{p.id}</div>
+            <div className="mono">#{p.order_id}</div>
+            <div>{PAYMENT_METHOD[p.method] ?? p.method}</div>
+            <div style={{ color: "var(--olive)" }}>{parseFloat(p.discount_amount) > 0 ? `−${fmtKZT(p.discount_amount)}` : "—"}</div>
+            <div className="num" style={{ fontWeight: 600 }}>{fmtKZT(p.final_amount)}</div>
+            <div className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>
+              {new Date(p.created_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+            </div>
+          </div>
+        ))}
+        {payments.length === 0 && <div style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}>Платежей нет</div>}
       </div>
     </div>
   );
 }
 
-const PAYMENT_METHOD: Record<string, string> = { cash: "Наличные", card: "Карта", qr: "QR / Kaspi", account: "На счёт" };
+const PAYMENT_METHOD: Record<string, string> = {
+  cash: "Наличные",
+  card: "Карта",
+  mixed: "Смешанная",
+  external: "QR / внешний платеж",
+};
 
 // ─── Manager Shifts ───────────────────────────────────────────────────────────
 
@@ -632,16 +620,24 @@ export function ManagerShifts() {
 
   return (
     <div style={{ overflow: "auto", padding: 24 }}>
-      {/* Current shift card */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 600 }}>Текущая смена</div>
         <div style={{ padding: 18 }}>
           {current ? (
             <div>
               <div style={{ display: "flex", gap: 24, marginBottom: 16 }}>
-                <div><div style={{ fontSize: 12, color: "var(--ink-3)" }}>Статус</div><div style={{ fontWeight: 600, color: "var(--green)" }}>Открыта</div></div>
-                <div><div style={{ fontSize: 12, color: "var(--ink-3)" }}>Открыта в</div><div style={{ fontWeight: 500 }}>{new Date(current.opened_at).toLocaleString("ru-RU")}</div></div>
-                <div><div style={{ fontSize: 12, color: "var(--ink-3)" }}>Касса при открытии</div><div style={{ fontWeight: 500 }}>{fmtKZT(current.opening_cash_amount)}</div></div>
+                <div>
+                  <div style={{ fontSize: 12, color: "var(--ink-3)" }}>Статус</div>
+                  <div style={{ fontWeight: 600, color: "var(--olive)" }}>Открыта</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: "var(--ink-3)" }}>Открыта в</div>
+                  <div style={{ fontWeight: 500 }}>{new Date(current.opened_at).toLocaleString("ru-RU")}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: "var(--ink-3)" }}>Касса при открытии</div>
+                  <div style={{ fontWeight: 500 }}>{fmtKZT(current.opening_cash_amount)}</div>
+                </div>
               </div>
               <button className="btn danger" onClick={() => setShowClose(true)}>Закрыть смену</button>
             </div>
@@ -655,52 +651,53 @@ export function ManagerShifts() {
         </div>
       </div>
 
-      {/* Shift history */}
       <div className="card">
         <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 600 }}>История смен</div>
         <div style={{ overflow: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr className="list-head"><th>ID</th><th>Статус</th><th>Открыта</th><th>Закрыта</th><th>Открытие ₸</th><th>Закрытие ₸</th></tr>
-            </thead>
-            <tbody>
-              {shifts.map((s: Shift) => (
-                <tr key={s.id} className="list-row">
-                  <td>#{s.id}</td>
-                  <td><span style={{ color: s.status === "open" ? "var(--green)" : "var(--ink-3)", fontWeight: 600, fontSize: 12 }}>{s.status === "open" ? "Открыта" : "Закрыта"}</span></td>
-                  <td style={{ fontSize: 13 }}>{new Date(s.opened_at).toLocaleString("ru-RU")}</td>
-                  <td style={{ fontSize: 13, color: "var(--ink-3)" }}>{s.closed_at ? new Date(s.closed_at).toLocaleString("ru-RU") : "—"}</td>
-                  <td>{fmtKZT(s.opening_cash_amount)}</td>
-                  <td>{s.closing_cash_amount ? fmtKZT(s.closing_cash_amount) : "—"}</td>
-                </tr>
-              ))}
-              {shifts.length === 0 && <tr><td colSpan={6} style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}>Смен нет</td></tr>}
-            </tbody>
-          </table>
+          <div className="list-head" style={{ gridTemplateColumns: "60px 90px 1fr 1fr 120px 120px" }}>
+            <div>ID</div><div>Статус</div><div>Открыта</div><div>Закрыта</div><div>Открытие ₸</div><div>Закрытие ₸</div>
+          </div>
+          {shifts.map((s: Shift) => (
+            <div key={s.id} className="list-row" style={{ gridTemplateColumns: "60px 90px 1fr 1fr 120px 120px" }}>
+              <div className="mono">#{s.id}</div>
+              <div>
+                <span style={{ color: s.status === "open" ? "var(--olive)" : "var(--ink-3)", fontWeight: 600, fontSize: 12 }}>
+                  {s.status === "open" ? "Открыта" : "Закрыта"}
+                </span>
+              </div>
+              <div style={{ fontSize: 13 }}>{new Date(s.opened_at).toLocaleString("ru-RU")}</div>
+              <div style={{ fontSize: 13, color: "var(--ink-3)" }}>{s.closed_at ? new Date(s.closed_at).toLocaleString("ru-RU") : "—"}</div>
+              <div className="num">{fmtKZT(s.opening_cash_amount)}</div>
+              <div className="num">{s.closing_cash_amount ? fmtKZT(s.closing_cash_amount) : "—"}</div>
+            </div>
+          ))}
+          {shifts.length === 0 && <div style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}>Смен нет</div>}
         </div>
       </div>
 
       {showClose && (
-        <div className="scrim" onClick={() => setShowClose(false)}>
-          <div className="modal" style={{ maxWidth: 380 }} onClick={e => e.stopPropagation()}>
-            <div className="modal-head">
-              <div className="modal-title">Закрыть смену</div>
-              <button className="iconbtn borderless" onClick={() => setShowClose(false)}>✕</button>
-            </div>
-            <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div className="field"><label className="field-label">Сумма в кассе ₸</label>
-                <input className="input" type="number" value={closeCash} onChange={e => setCloseCash(e.target.value)} />
-              </div>
-              <div className="field"><label className="field-label">Примечание</label>
-                <textarea className="textarea" value={closeNote} onChange={e => setCloseNote(e.target.value)} rows={2} />
-              </div>
-            </div>
-            <div className="modal-foot">
-              <button className="btn" onClick={() => setShowClose(false)}>Отмена</button>
+        <Modal
+          title="Закрыть смену"
+          onClose={() => setShowClose(false)}
+          footer={
+            <>
+              <button className="btn ghost" onClick={() => setShowClose(false)}>Отмена</button>
               <button className="btn danger" onClick={handleClose}>Закрыть смену</button>
+            </>
+          }
+          width={380}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className="field">
+              <label className="field-label">Сумма в кассе ₸</label>
+              <input className="input" type="number" value={closeCash} onChange={e => setCloseCash(e.target.value)} />
+            </div>
+            <div className="field">
+              <label className="field-label">Примечание</label>
+              <textarea className="textarea" value={closeNote} onChange={e => setCloseNote(e.target.value)} rows={2} />
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
@@ -713,37 +710,42 @@ export function ManagerPeripherals() {
 
   const DEVICE_TYPE: Record<string, string> = {
     receipt_printer: "Принтер чеков",
-    cash_drawer: "Денежный ящик",
+    cash_drawer:     "Денежный ящик",
     barcode_scanner: "Сканер штрихкода",
+  };
+
+  const DEVICE_ICON: Record<string, string> = {
+    receipt_printer: "print",
+    cash_drawer:     "cash",
+    barcode_scanner: "barcode",
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--line-1)", display: "flex" }}>
-        <button className="btn sm" style={{ marginLeft: "auto" }} onClick={refreshDevices}>Обновить</button>
+        <button className="btn sm" style={{ marginLeft: "auto" }} onClick={refreshDevices}><Icon name="sort" /> Обновить</button>
       </div>
       <div style={{ flex: 1, overflow: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr className="list-head"><th>Название</th><th>Тип</th><th>ID устройства</th><th>Локация</th><th>Статус</th></tr>
-          </thead>
-          <tbody>
-            {state.devices.map(d => (
-              <tr key={d.id} className="list-row">
-                <td style={{ fontWeight: 500 }}>{d.name}</td>
-                <td>{DEVICE_TYPE[d.device_type] ?? d.device_type}</td>
-                <td style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{d.identifier}</td>
-                <td style={{ color: "var(--ink-3)" }}>{d.location ?? "—"}</td>
-                <td>
-                  <span style={{ color: d.is_active ? "var(--green)" : "var(--red)", fontWeight: 600, fontSize: 12 }}>
-                    {d.is_active ? "Активно" : "Неактивно"}
-                  </span>
-                </td>
-              </tr>
-            ))}
-            {state.devices.length === 0 && <tr><td colSpan={5} style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}>Устройств нет</td></tr>}
-          </tbody>
-        </table>
+        <div className="list-head" style={{ gridTemplateColumns: "1.5fr 1.5fr 1.5fr 1fr 100px" }}>
+          <div>Название</div><div>Тип</div><div>ID устройства</div><div>Локация</div><div>Статус</div>
+        </div>
+        {state.devices.map(d => (
+          <div key={d.id} className="list-row" style={{ gridTemplateColumns: "1.5fr 1.5fr 1.5fr 1fr 100px" }}>
+            <div style={{ fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}>
+              <Icon name={DEVICE_ICON[d.device_type] ?? "device"} size={15} style={{ color: "var(--ink-3)" }} />
+              {d.name}
+            </div>
+            <div>{DEVICE_TYPE[d.device_type] ?? d.device_type}</div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--ink-3)" }}>{d.identifier}</div>
+            <div style={{ color: "var(--ink-3)" }}>{d.location ?? "—"}</div>
+            <div>
+              <span style={{ color: d.is_active ? "var(--olive)" : "var(--red)", fontWeight: 600, fontSize: 12 }}>
+                {d.is_active ? "Активно" : "Неактивно"}
+              </span>
+            </div>
+          </div>
+        ))}
+        {state.devices.length === 0 && <div style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}>Устройств нет</div>}
       </div>
     </div>
   );
@@ -752,94 +754,171 @@ export function ManagerPeripherals() {
 // ─── Manager Analytics ────────────────────────────────────────────────────────
 
 export function ManagerAnalytics() {
-  const { state } = useApp();
+  const { state, refreshOrders, toast } = useApp();
   const token = state.token!;
   const [analytics, setAnalytics] = useState<Awaited<ReturnType<typeof api.analytics>> | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    api.analytics(token).then(setAnalytics).catch(() => {});
-  }, [token]);
+  const loadAnalytics = async () => {
+    setLoading(true);
+    try {
+      const data = await api.analytics(token);
+      setAnalytics(data);
+      await refreshOrders();
+    } catch {
+      toast("error", "Не удалось загрузить аналитику");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadAnalytics(); }, [token]);
+
+  if (loading && !analytics) {
+    return (
+      <div style={{ padding: 60, textAlign: "center", color: "var(--ink-3)" }}>
+        <span className="spin" style={{ display: "inline-block", marginBottom: 12 }} />
+        <div>Загрузка аналитики...</div>
+      </div>
+    );
+  }
 
   if (!analytics) {
-    return <div style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}>Загрузка аналитики...</div>;
+    return <div style={{ padding: 40, color: "var(--ink-3)" }}>Нет данных аналитики</div>;
   }
 
   const maxOrders = Math.max(...analytics.peak_hours.map(h => h.orders), 1);
+  const revenue = parseFloat(analytics.revenue);
+  const refunds = parseFloat(analytics.refunds_total ?? "0");
+  const netRevenue = Math.max(0, revenue - refunds);
+  const activeByStatus = ["pending", "in_progress", "ready", "served"].map(status => ({
+    status,
+    count: state.orders.filter(o => o.status === status).length,
+  }));
+  const maxStatusCount = Math.max(...activeByStatus.map(s => s.count), 1);
+  const paymentTotal = analytics.payments.reduce((sum, row) => sum + parseFloat(row.total), 0) || 1;
 
   return (
     <div style={{ overflow: "auto", padding: 24 }}>
-      {/* Metrics */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12, marginBottom: 24 }}>
-        {[
-          { label: "Активных заказов", value: analytics.active_orders },
-          { label: "Завершённых", value: analytics.completed_orders },
-          { label: "Оплаченных", value: analytics.paid_orders },
-          { label: "Выручка", value: fmtKZT(analytics.revenue) },
-          { label: "Среднее ожидание", value: analytics.average_customer_wait_seconds ? `${Math.round(analytics.average_customer_wait_seconds / 60)} мин` : "—" },
-          { label: "Среднее время готовки", value: analytics.average_preparation_seconds ? `${Math.round(analytics.average_preparation_seconds / 60)} мин` : "—" },
-        ].map(m => (
-          <div key={m.label} className="card metric">
-            <div className="metric-label">{m.label}</div>
-            <div className="metric-value">{m.value}</div>
-          </div>
-        ))}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 750 }}>Аналитика смены</div>
+          <div style={{ color: "var(--ink-3)", fontSize: 13 }}>Деньги, скорость кухни, нагрузка зала и продуктивность команды</div>
+        </div>
+        <button className="btn sm" style={{ marginLeft: "auto" }} onClick={loadAnalytics} disabled={loading}>
+          {loading ? <span className="spin" /> : <Icon name="sort" />} Обновить
+        </button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
-        {/* Peak hours chart */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12, marginBottom: 24 }}>
+        <Metric label="Выручка gross" value={fmtKZT(revenue)} icon="money" />
+        <Metric label="Возвраты" value={refunds ? `−${fmtKZT(refunds)}` : "0 ₸"} icon="refund" />
+        <Metric label="Выручка net" value={fmtKZT(netRevenue)} icon="receipt" />
+        <Metric label="Активные заказы" value={analytics.active_orders} icon="orders" />
+        <Metric label="Оплачено заказов" value={analytics.paid_orders} icon="check" />
+        <Metric
+          label="Среднее ожидание"
+          value={analytics.average_customer_wait_seconds ? `${Math.round(analytics.average_customer_wait_seconds / 60)} мин` : "—"}
+          icon="clock"
+        />
+        <Metric
+          label="Среднее время готовки"
+          value={analytics.average_preparation_seconds ? `${Math.round(analytics.average_preparation_seconds / 60)} мин` : "—"}
+          icon="kitchen"
+        />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.25fr) minmax(320px, 0.75fr)", gap: 16, marginBottom: 16 }}>
         <div className="card">
-          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 600 }}>Пиковые часы</div>
-          <div style={{ padding: 16, display: "flex", alignItems: "flex-end", gap: 4, height: 140 }}>
+          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontWeight: 650 }}>Пиковые часы</div>
+            <div style={{ fontSize: 12, color: "var(--ink-3)" }}>заказы по часу</div>
+          </div>
+          <div style={{ padding: 16, display: "flex", alignItems: "flex-end", gap: 6, height: 190 }}>
             {analytics.peak_hours.map(h => (
               <div key={h.hour} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                <div style={{ fontSize: 11, color: h.orders ? "var(--ink-2)" : "var(--ink-4)", fontWeight: 600 }}>{h.orders || ""}</div>
                 <div style={{
                   width: "100%",
-                  height: `${Math.max(4, (h.orders / maxOrders) * 96)}px`,
+                  height: `${Math.max(5, (h.orders / maxOrders) * 120)}px`,
                   background: "var(--brand)",
                   borderRadius: "3px 3px 0 0",
-                  opacity: 0.8,
+                  opacity: h.orders ? 0.85 : 0.18,
                 }} />
-                <div style={{ fontSize: 9, color: "var(--ink-4)" }}>{h.hour}</div>
+                <div style={{ fontSize: 10, color: "var(--ink-4)" }}>{String(h.hour).padStart(2, "0")}</div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Popular items */}
         <div className="card">
-          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 600 }}>Популярные блюда</div>
+          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 650 }}>Оплаты по методам</div>
           <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-            {analytics.popular_items.slice(0, 6).map((item, idx) => (
-              <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 20, height: 20, borderRadius: "50%", background: "var(--brand)", color: "white", display: "grid", placeItems: "center", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
-                  {idx + 1}
+            {analytics.payments.map(row => (
+              <div key={row.method}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
+                  <span>{PAYMENT_METHOD[row.method] ?? row.method}</span>
+                  <span className="num" style={{ fontWeight: 650 }}>{fmtKZT(row.total)}</span>
                 </div>
-                <div style={{ flex: 1, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{item.quantity}</div>
+                <div style={{ height: 8, background: "var(--bg-sunken)", borderRadius: 999, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${Math.max(6, parseFloat(row.total) / paymentTotal * 100)}%`, background: "var(--olive)", borderRadius: 999 }} />
+                </div>
+                <div style={{ marginTop: 4, fontSize: 11, color: "var(--ink-4)" }}>{row.count} платежей</div>
               </div>
             ))}
+            {analytics.payments.length === 0 && <div style={{ color: "var(--ink-3)", fontSize: 13 }}>Платежей пока нет</div>}
           </div>
         </div>
       </div>
 
-      {/* Staff productivity */}
-      {analytics.staff_productivity.length > 0 && (
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 0.8fr) minmax(0, 1.2fr)", gap: 16, marginBottom: 16 }}>
         <div className="card">
-          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 600 }}>Производительность персонала</div>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr className="list-head"><th>Сотрудник</th><th>Заказов</th><th>Выручка</th></tr>
-            </thead>
-            <tbody>
-              {analytics.staff_productivity.map(s => (
-                <tr key={s.waiter_id} className="list-row">
-                  <td style={{ fontWeight: 500 }}>{s.full_name}</td>
-                  <td>{s.orders}</td>
-                  <td>{fmtKZT(s.revenue)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 650 }}>Воронка активных заказов</div>
+          <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+            {activeByStatus.map(row => (
+              <div key={row.status}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <StatusBadge status={row.status as OrderStatus} />
+                  <span style={{ fontWeight: 700 }}>{row.count}</span>
+                </div>
+                <div style={{ height: 8, background: "var(--bg-sunken)", borderRadius: 999, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${Math.max(4, row.count / maxStatusCount * 100)}%`, background: "var(--brand)", borderRadius: 999 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card">
+          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 650 }}>Популярные блюда</div>
+          <div style={{ padding: 16, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+            {analytics.popular_items.slice(0, 8).map((item, idx) => (
+              <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: 10, background: "var(--bg-sunken)", borderRadius: "var(--r)" }}>
+                <div style={{ width: 24, height: 24, borderRadius: 6, background: idx < 3 ? "var(--brand)" : "var(--line-2)", color: idx < 3 ? "white" : "var(--ink-2)", display: "grid", placeItems: "center", fontSize: 11, fontWeight: 800, flexShrink: 0 }}>
+                  {idx + 1}
+                </div>
+                <div style={{ minWidth: 0, flex: 1, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>
+                <div className="num" style={{ fontWeight: 700 }}>{item.quantity}</div>
+              </div>
+            ))}
+            {analytics.popular_items.length === 0 && <div style={{ color: "var(--ink-3)", fontSize: 13 }}>Нет продаж по блюдам</div>}
+          </div>
+        </div>
+      </div>
+
+      {analytics.staff_productivity.length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 650 }}>Продуктивность персонала</div>
+          <div className="list-head" style={{ gridTemplateColumns: "1fr 80px 140px" }}>
+            <div>Сотрудник</div><div>Заказов</div><div>Выручка</div>
+          </div>
+          {analytics.staff_productivity.map(s => (
+            <div key={s.waiter_id} className="list-row" style={{ gridTemplateColumns: "1fr 80px 140px" }}>
+              <div style={{ fontWeight: 500 }}>{s.full_name}</div>
+              <div>{s.orders}</div>
+              <div className="num">{fmtKZT(s.revenue)}</div>
+            </div>
+          ))}
         </div>
       )}
     </div>
