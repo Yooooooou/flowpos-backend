@@ -143,6 +143,24 @@ def create_order(
     return order
 
 
+def seed_initial_users() -> None:
+    """Create default users only if the database has no users yet (idempotent)."""
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        if db.query(User).count() > 0:
+            print("Users already exist, skipping initial seed.")
+            return
+        manager = create_user(db, "manager", "Айдана Сулейменова", UserRole.manager, "manager123")
+        create_user(db, "waiter", "Данияр Омаров", UserRole.waiter, "waiter123")
+        create_user(db, "waiter2", "Мадина Касенова", UserRole.waiter, "waiter123")
+        create_user(db, "kitchen", "Кухонный экран", UserRole.kitchen, "kitchen123")
+        db.commit()
+        print("Initial users created: manager/manager123, waiter/waiter123, kitchen/kitchen123")
+    finally:
+        db.close()
+
+
 def run() -> None:
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
