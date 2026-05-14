@@ -47,6 +47,7 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
 
   return (
     <div style={{
+      flexShrink: 0,          // prevent flex parent from squishing the card
       background: "var(--bg-paper)",
       border: `1px solid ${cardBorder}`,
       borderLeft: `4px solid ${accentColor}`,
