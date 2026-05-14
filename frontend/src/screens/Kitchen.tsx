@@ -47,9 +47,6 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
 
   return (
     <div style={{
-      height: "100%",
-      display: "flex",
-      flexDirection: "column",
       background: "var(--bg-paper)",
       border: `1px solid ${cardBorder}`,
       borderLeft: `4px solid ${accentColor}`,
@@ -93,14 +90,8 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
         </div>
       </div>
 
-      {/* Items — grows to fill available space, scrolls if many items */}
-      <div style={{
-        flex: 1,
-        minHeight: 0,
-        overflowY: "auto",
-        scrollbarWidth: "thin" as React.CSSProperties["scrollbarWidth"],
-        padding: "10px 16px",
-      }}>
+      {/* Items */}
+      <div style={{ padding: "10px 16px" }}>
         {order.items.map((it, i) => (
           <div key={it.id} style={{
             padding: "7px 0",
