@@ -44,76 +44,71 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
 
   const timerColor = isLate ? "var(--pri-urgent)" : isWarn ? "var(--amber)" : "var(--ink-2)";
   const accentColor = urgent ? "var(--pri-urgent)" : isLate ? "var(--pri-urgent)" : isWarn ? "var(--amber)" : "var(--brand)";
+  const cardBorder = urgent || isLate ? "var(--pri-urgent)" : isWarn ? "var(--amber)" : "var(--line-1)";
 
   return (
     <div style={{
       background: "var(--bg-paper)",
-      border: `1px solid ${urgent || isLate ? "var(--pri-urgent)" : "var(--line-1)"}`,
+      border: `1px solid ${cardBorder}`,
       borderLeft: `4px solid ${accentColor}`,
       borderRadius: "var(--r)",
-      boxShadow: "var(--sh-1)",
-      display: "flex",
-      flexDirection: "column",
-      maxHeight: 380,
+      boxShadow: urgent || isLate
+        ? "0 2px 10px rgba(220,50,50,0.12)"
+        : "var(--sh-1)",
       overflow: "hidden",
     }}>
 
-      {/* Header — order # / table / timer */}
+      {/* Header */}
       <div style={{
-        flexShrink: 0,
         padding: "10px 12px 8px",
         borderBottom: "1px solid var(--line-1)",
-        display: "flex", alignItems: "center", gap: 8,
+        display: "flex", alignItems: "flex-start", gap: 8,
       }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
-            <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>#{order.id}</span>
+          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 5, marginBottom: 3 }}>
+            <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>#{order.id}</span>
             {urgent && (
-              <span style={{ fontSize: 10, fontWeight: 800, padding: "1px 5px", borderRadius: 3, background: "var(--pri-urgent)", color: "#fff", letterSpacing: "0.03em" }}>
+              <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 3, background: "var(--pri-urgent)", color: "#fff", letterSpacing: "0.05em" }}>
                 СРОЧНО
               </span>
             )}
             {order.priority === "high" && !urgent && (
-              <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "var(--amber-soft)", color: "var(--amber)" }}>
+              <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: "var(--amber-soft)", color: "var(--amber)" }}>
                 Высокий
               </span>
             )}
           </div>
-          <div style={{ fontSize: 11.5, color: "var(--ink-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {order.table ? <><b style={{ color: "var(--ink-2)" }}>Стол {order.table.number}</b>{order.table.location ? ` · ${order.table.location}` : ""}</> : `Стол #${order.table_id}`}
+          <div style={{ fontSize: 11, color: "var(--ink-3)" }}>
+            {order.table
+              ? <><b style={{ color: "var(--ink-2)" }}>Стол {order.table.number}</b>{order.table.location ? ` · ${order.table.location}` : ""}</>
+              : `Стол #${order.table_id}`}
           </div>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div className="mono" style={{ fontSize: 22, fontWeight: 700, color: timerColor, lineHeight: 1 }}>
+          <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: timerColor, lineHeight: 1 }}>
             {fmtDuration(elapsed)}
           </div>
-          <div style={{ fontSize: 10, color: "var(--ink-4)", marginTop: 1 }}>{fmtTime(order.created_at)}</div>
+          <div style={{ fontSize: 10, color: "var(--ink-4)", marginTop: 2 }}>{fmtTime(order.created_at)}</div>
         </div>
       </div>
 
-      {/* Items list — scrollable if too many */}
-      <div style={{
-        flex: 1, minHeight: 0,
-        overflowY: "auto",
-        scrollbarWidth: "thin" as React.CSSProperties["scrollbarWidth"],
-        padding: "6px 12px",
-      }}>
+      {/* Items — full list, no internal scroll */}
+      <div style={{ padding: "6px 12px" }}>
         {order.items.map((it, i) => (
           <div key={it.id} style={{
-            padding: "5px 0",
+            padding: "4px 0",
             borderBottom: i < order.items.length - 1 ? "1px dashed var(--line-1)" : "none",
           }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-              <span className="mono" style={{
-                minWidth: 26, fontSize: 12, fontWeight: 700,
-                color: "var(--brand)", flexShrink: 0,
-              }}>×{it.quantity}</span>
-              <span style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
+              <span className="mono" style={{ minWidth: 24, fontSize: 12, fontWeight: 700, color: "var(--brand)", flexShrink: 0 }}>
+                ×{it.quantity}
+              </span>
+              <span style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>
                 {it.menu_item?.name ?? `#${it.menu_item_id}`}
               </span>
             </div>
             {it.note && (
-              <div style={{ marginLeft: 34, marginTop: 2, fontSize: 11.5, color: "var(--amber)", fontWeight: 500, display: "flex", gap: 4, alignItems: "center" }}>
+              <div style={{ marginLeft: 32, marginTop: 2, fontSize: 11, color: "var(--amber)", fontWeight: 500, display: "flex", gap: 4, alignItems: "center" }}>
                 <Icon name="note" size={10} /> {it.note}
               </div>
             )}
@@ -121,39 +116,38 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
         ))}
       </div>
 
-      {/* Customer note — pinned above action button */}
+      {/* Customer note */}
       {order.customer_note && (
         <div style={{
-          flexShrink: 0,
-          padding: "5px 12px",
+          padding: "6px 12px",
           background: "var(--amber-soft)",
           borderTop: "1px solid var(--amber-line)",
-          fontSize: 12, color: "var(--amber)", display: "flex", gap: 5, alignItems: "flex-start",
+          fontSize: 11.5, color: "var(--amber)", display: "flex", gap: 5, alignItems: "flex-start",
         }}>
-          <Icon name="warning" size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+          <Icon name="warning" size={11} style={{ flexShrink: 0, marginTop: 1 }} />
           <span>{order.customer_note}</span>
         </div>
       )}
 
-      {/* Action — pinned at bottom, always reachable */}
+      {/* Action */}
       {order.status === "pending" && (
-        <div style={{ flexShrink: 0, padding: "8px 12px", borderTop: "1px solid var(--line-1)", background: "var(--st-progress-bg)" }}>
-          <button className="btn primary block" style={{ minHeight: 44, fontWeight: 700 }}
+        <div style={{ padding: "8px 12px", borderTop: "1px solid var(--line-1)", background: "var(--st-progress-bg)" }}>
+          <button className="btn primary block" style={{ minHeight: 40, fontWeight: 700 }}
             onClick={() => onAction(order.id, "in_progress")}>
             <Icon name="play" /> Начать готовку
           </button>
         </div>
       )}
       {order.status === "in_progress" && (
-        <div style={{ flexShrink: 0, padding: "8px 12px", borderTop: "1px solid var(--line-1)", background: "var(--st-ready-bg)" }}>
-          <button className="btn success block" style={{ minHeight: 44, fontWeight: 700 }}
+        <div style={{ padding: "8px 12px", borderTop: "1px solid var(--line-1)", background: "var(--st-ready-bg)" }}>
+          <button className="btn success block" style={{ minHeight: 40, fontWeight: 700 }}
             onClick={() => onAction(order.id, "ready")}>
             <Icon name="check" /> Готово — к выдаче
           </button>
         </div>
       )}
       {order.status === "ready" && (
-        <div style={{ flexShrink: 0, padding: "8px 12px", borderTop: "1px solid var(--line-1)", display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "var(--st-served-fg)" }}>
+        <div style={{ padding: "7px 12px", borderTop: "1px solid var(--line-1)", display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "var(--st-served-fg)" }}>
           <Icon name="check" size={13} /> Ожидает официанта
         </div>
       )}
