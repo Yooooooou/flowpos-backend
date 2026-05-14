@@ -24,4 +24,4 @@ COPY --from=frontend-build /frontend/dist ./frontend/dist
 RUN useradd --create-home --shell /usr/sbin/nologin appuser
 USER appuser
 
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "start.sh"]
