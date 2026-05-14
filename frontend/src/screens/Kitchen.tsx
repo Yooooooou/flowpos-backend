@@ -30,14 +30,11 @@ const SLA = {
 } as Record<string, { warn: number; late: number }>;
 
 // ─── KDS Card ─────────────────────────────────────────────────────────────────
-// Collapsed: order #, table, timer, start time + action button
-// Expanded:  + items list + customer note
+// Fixed structure: header → items (scrollable) → note → action button
+// No collapse — all info always visible, bounded by maxHeight
 
 function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, status: string) => void }) {
   useTick();
-  // Pending orders default open (cook needs to see what to prepare)
-  // In-progress and ready default closed (just need the action button + timer)
-  const [expanded, setExpanded] = useState(order.status === "pending");
 
   const elapsed = elapsedSec(order.created_at);
   const sla = SLA[order.status] ?? SLA.in_progress;
@@ -46,134 +43,117 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
   const urgent = order.priority === "urgent";
 
   const timerColor = isLate ? "var(--pri-urgent)" : isWarn ? "var(--amber)" : "var(--ink-2)";
-  const borderLeftColor = urgent ? "var(--pri-urgent)" : isLate ? "var(--pri-urgent)" : isWarn ? "var(--amber)" : "var(--brand)";
-  const outerBorder = isLate || urgent ? "var(--pri-urgent)" : "var(--line-1)";
+  const accentColor = urgent ? "var(--pri-urgent)" : isLate ? "var(--pri-urgent)" : isWarn ? "var(--amber)" : "var(--brand)";
 
   return (
     <div style={{
       background: "var(--bg-paper)",
-      border: `1px solid ${outerBorder}`,
-      borderLeft: `4px solid ${borderLeftColor}`,
+      border: `1px solid ${urgent || isLate ? "var(--pri-urgent)" : "var(--line-1)"}`,
+      borderLeft: `4px solid ${accentColor}`,
       borderRadius: "var(--r)",
       boxShadow: "var(--sh-1)",
+      display: "flex",
+      flexDirection: "column",
+      maxHeight: 380,
       overflow: "hidden",
     }}>
 
-      {/* ── Header — always visible, click to expand/collapse ── */}
-      <div
-        onClick={() => setExpanded(e => !e)}
-        style={{
-          padding: "10px 14px",
-          display: "flex", alignItems: "center", gap: 10,
-          cursor: "pointer", userSelect: "none",
-          borderBottom: expanded ? "1px solid var(--line-1)" : "none",
-        }}
-      >
-        {/* Left: order # + badges + table */}
+      {/* Header — order # / table / timer */}
+      <div style={{
+        flexShrink: 0,
+        padding: "10px 12px 8px",
+        borderBottom: "1px solid var(--line-1)",
+        display: "flex", alignItems: "center", gap: 8,
+      }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-            <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>
-              #{order.id}
-            </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
+            <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>#{order.id}</span>
             {urgent && (
-              <span className="badge" style={{ background: "var(--pri-urgent)", color: "white", borderColor: "var(--pri-urgent)", padding: "1px 6px", fontSize: 10 }}>
-                <Icon name="fire" size={9} /> СРОЧНО
+              <span style={{ fontSize: 10, fontWeight: 800, padding: "1px 5px", borderRadius: 3, background: "var(--pri-urgent)", color: "#fff", letterSpacing: "0.03em" }}>
+                СРОЧНО
               </span>
             )}
             {order.priority === "high" && !urgent && (
-              <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 3, background: "var(--amber-soft)", color: "var(--amber)" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "var(--amber-soft)", color: "var(--amber)" }}>
                 Высокий
               </span>
             )}
           </div>
-          <div style={{ fontSize: 12, color: "var(--ink-3)" }}>
-            {order.table
-              ? <><b style={{ color: "var(--ink-2)" }}>Стол {order.table.number}</b> · {order.table.location}</>
-              : `Стол #${order.table_id}`}
-            {/* Item count hint when collapsed */}
-            {!expanded && (
-              <span style={{ marginLeft: 6, color: "var(--ink-4)" }}>
-                · {order.items.reduce((s, i) => s + i.quantity, 0)} поз.
-              </span>
-            )}
+          <div style={{ fontSize: 11.5, color: "var(--ink-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {order.table ? <><b style={{ color: "var(--ink-2)" }}>Стол {order.table.number}</b>{order.table.location ? ` · ${order.table.location}` : ""}</> : `Стол #${order.table_id}`}
           </div>
         </div>
-
-        {/* Right: timer + chevron */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ textAlign: "right" }}>
-            <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: timerColor, lineHeight: 1 }}>
-              {fmtDuration(elapsed)}
-            </div>
-            <div style={{ fontSize: 10, color: "var(--ink-4)", marginTop: 2 }}>
-              {fmtTime(order.created_at)}
-            </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div className="mono" style={{ fontSize: 22, fontWeight: 700, color: timerColor, lineHeight: 1 }}>
+            {fmtDuration(elapsed)}
           </div>
-          <div style={{ color: "var(--ink-4)", display: "flex" }}>
-            <Icon name={expanded ? "up" : "down"} size={14} />
-          </div>
+          <div style={{ fontSize: 10, color: "var(--ink-4)", marginTop: 1 }}>{fmtTime(order.created_at)}</div>
         </div>
       </div>
 
-      {/* ── Expandable: items + customer note ── */}
-      {expanded && (
-        <>
-          <div style={{ padding: "6px 14px 8px" }}>
-            {order.items.map((it, i) => (
-              <div key={it.id} style={{ padding: "5px 0", borderBottom: i < order.items.length - 1 ? "1px dashed var(--line-1)" : "none" }}>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                  <div className="mono" style={{
-                    minWidth: 28, height: 22, borderRadius: 4, background: "var(--bg-sunken)",
-                    display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700, color: "var(--ink-1)",
-                    flexShrink: 0,
-                  }}>×{it.quantity}</div>
-                  <div style={{ flex: 1, fontWeight: 600, fontSize: 13.5, paddingTop: 2 }}>
-                    {it.menu_item?.name ?? `#${it.menu_item_id}`}
-                  </div>
-                </div>
-                {it.note && (
-                  <div style={{ marginLeft: 36, marginTop: 3, fontSize: 11.5, color: "var(--amber)", fontWeight: 500, display: "flex", gap: 5, alignItems: "center" }}>
-                    <Icon name="note" size={10} /> {it.note}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {order.customer_note && (
-            <div style={{ margin: "0 14px 10px", padding: "5px 10px", background: "var(--amber-soft)", border: "1px solid var(--amber-line)", borderRadius: 4, fontSize: 12 }}>
-              <span style={{ fontSize: 10, color: "var(--amber)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginRight: 6 }}>Внимание</span>
-              {order.customer_note}
+      {/* Items list — scrollable if too many */}
+      <div style={{
+        flex: 1, minHeight: 0,
+        overflowY: "auto",
+        scrollbarWidth: "thin" as React.CSSProperties["scrollbarWidth"],
+        padding: "6px 12px",
+      }}>
+        {order.items.map((it, i) => (
+          <div key={it.id} style={{
+            padding: "5px 0",
+            borderBottom: i < order.items.length - 1 ? "1px dashed var(--line-1)" : "none",
+          }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span className="mono" style={{
+                minWidth: 26, fontSize: 12, fontWeight: 700,
+                color: "var(--brand)", flexShrink: 0,
+              }}>×{it.quantity}</span>
+              <span style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
+                {it.menu_item?.name ?? `#${it.menu_item_id}`}
+              </span>
             </div>
-          )}
-        </>
+            {it.note && (
+              <div style={{ marginLeft: 34, marginTop: 2, fontSize: 11.5, color: "var(--amber)", fontWeight: 500, display: "flex", gap: 4, alignItems: "center" }}>
+                <Icon name="note" size={10} /> {it.note}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Customer note — pinned above action button */}
+      {order.customer_note && (
+        <div style={{
+          flexShrink: 0,
+          padding: "5px 12px",
+          background: "var(--amber-soft)",
+          borderTop: "1px solid var(--amber-line)",
+          fontSize: 12, color: "var(--amber)", display: "flex", gap: 5, alignItems: "flex-start",
+        }}>
+          <Icon name="warning" size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>{order.customer_note}</span>
+        </div>
       )}
 
-      {/* ── Action button — always visible ── */}
+      {/* Action — pinned at bottom, always reachable */}
       {order.status === "pending" && (
-        <div style={{ padding: "8px 14px 10px", borderTop: expanded ? "1px solid var(--line-1)" : "none", background: "var(--st-progress-bg)" }}>
-          <button
-            className="btn primary block"
-            style={{ minHeight: 42, fontWeight: 700, fontSize: 14 }}
-            onClick={() => onAction(order.id, "in_progress")}
-          >
+        <div style={{ flexShrink: 0, padding: "8px 12px", borderTop: "1px solid var(--line-1)", background: "var(--st-progress-bg)" }}>
+          <button className="btn primary block" style={{ minHeight: 44, fontWeight: 700 }}
+            onClick={() => onAction(order.id, "in_progress")}>
             <Icon name="play" /> Начать готовку
           </button>
         </div>
       )}
       {order.status === "in_progress" && (
-        <div style={{ padding: "8px 14px 10px", borderTop: expanded ? "1px solid var(--line-1)" : "none", background: "var(--st-ready-bg)" }}>
-          <button
-            className="btn success block"
-            style={{ minHeight: 42, fontWeight: 700, fontSize: 14 }}
-            onClick={() => onAction(order.id, "ready")}
-          >
+        <div style={{ flexShrink: 0, padding: "8px 12px", borderTop: "1px solid var(--line-1)", background: "var(--st-ready-bg)" }}>
+          <button className="btn success block" style={{ minHeight: 44, fontWeight: 700 }}
+            onClick={() => onAction(order.id, "ready")}>
             <Icon name="check" /> Готово — к выдаче
           </button>
         </div>
       )}
       {order.status === "ready" && (
-        <div style={{ padding: "8px 14px", borderTop: expanded ? "1px solid var(--line-1)" : "none", display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "var(--st-served-fg)" }}>
+        <div style={{ flexShrink: 0, padding: "8px 12px", borderTop: "1px solid var(--line-1)", display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "var(--st-served-fg)" }}>
           <Icon name="check" size={13} /> Ожидает официанта
         </div>
       )}
