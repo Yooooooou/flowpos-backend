@@ -345,7 +345,7 @@ export function OrderDetails({ orderId, setRoute }: Props) {
             <div style={{ flex: 1, overflow: "auto", padding: 14, background: "var(--bg-canvas)" }}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10 }}>
                 {menuItems.map(item => {
-                  const inDraft = draft.filter(c => c.menu_item_id === item.id).reduce((s, c) => s + c.quantity, 0);
+                  const inDraft = additions.filter(c => c.menu_item_id === item.id).reduce((s, c) => s + c.quantity, 0);
                   return (
                     <button
                       key={item.id}
