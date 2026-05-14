@@ -1,8 +1,31 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useApp } from "../lib/store";
-import type { Order, OrderStatus } from "../types";
+import type { MenuItem, Order, OrderStatus } from "../types";
 import { Icon } from "../components/Icon";
-import { StatusBadge, PriorityChip, fmtKZT, fmtTime, STATUS_LABEL, Modal, ConfirmModal } from "../components/UI";
+import { StatusBadge, PriorityChip, fmtKZT, fmtTime, STATUS_LABEL, Modal } from "../components/UI";
+
+interface CartItem {
+  menu_item_id: number;
+  name: string;
+  quantity: number;
+  unit_price: number;
+  note: string;
+}
+
+function elapsedMin(dateStr: string) {
+  return Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
+}
+
+function initDraft(order: Order | undefined): CartItem[] {
+  if (!order) return [];
+  return order.items.map(i => ({
+    menu_item_id: i.menu_item_id,
+    name: i.menu_item?.name ?? `#${i.menu_item_id}`,
+    quantity: i.quantity,
+    unit_price: parseFloat(i.unit_price),
+    note: i.note ?? "",
+  }));
+}
 
 interface Props {
   orderId: number;
@@ -10,154 +33,369 @@ interface Props {
 }
 
 export function OrderDetails({ orderId, setRoute }: Props) {
-  const { state, changeStatus, toast } = useApp();
+  const { state, changeStatus, updateOrder, toast } = useApp();
   const order = state.orders.find(o => o.id === orderId);
 
+  const [draft, setDraft] = useState<CartItem[]>(() => initDraft(order));
+  const [isDirty, setIsDirty] = useState(false);
+  const [activeCat, setActiveCat] = useState<number | undefined>(state.categories[0]?.id);
+  const [search, setSearch] = useState("");
+  const [saving, setSaving] = useState(false);
   const [confirmStatus, setConfirmStatus] = useState<OrderStatus | null>(null);
+
+  // Re-sync draft when order changes from WebSocket (only if user has no pending edits)
+  useEffect(() => {
+    if (!isDirty && order) setDraft(initDraft(order));
+  }, [order?.id, order?.items.length, isDirty]); // eslint-disable-line
 
   if (!order) {
     return (
       <div style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}>
         Заказ #{orderId} не найден
         <br />
-        <button className="btn" style={{ marginTop: 16 }} onClick={() => setRoute({ id: "w_orders" })}>
-          <Icon name="back" /> Назад
+        <button className="btn" style={{ marginTop: 16 }} onClick={() => setRoute({ id: "w_tables" })}>
+          <Icon name="back" /> К столам
         </button>
       </div>
     );
   }
 
+  const canEdit = ["pending", "in_progress"].includes(order.status);
+  const nextActions = getNextActions(order.status);
+
+  const addToOrder = (item: MenuItem) => {
+    setDraft(prev => {
+      const ex = prev.find(c => c.menu_item_id === item.id && !c.note);
+      if (ex) return prev.map(c => c === ex ? { ...c, quantity: c.quantity + 1 } : c);
+      return [...prev, {
+        menu_item_id: item.id,
+        name: item.name,
+        quantity: 1,
+        unit_price: parseFloat(item.price),
+        note: "",
+      }];
+    });
+    setIsDirty(true);
+  };
+
+  const setQty = (idx: number, q: number) => {
+    setDraft(prev =>
+      q <= 0
+        ? prev.filter((_, i) => i !== idx)
+        : prev.map((c, i) => i === idx ? { ...c, quantity: q } : c)
+    );
+    setIsDirty(true);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await updateOrder(orderId, {
+        items: draft.map(c => ({
+          menu_item_id: c.menu_item_id,
+          quantity: c.quantity,
+          note: c.note || undefined,
+        })),
+      });
+      setIsDirty(false);
+      toast("success", "Заказ обновлён");
+    } catch (e: unknown) {
+      toast("error", e instanceof Error ? e.message : "Ошибка");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleStatus = async (status: OrderStatus) => {
     try {
       await changeStatus(orderId, status);
-      toast("success", `Статус обновлён: ${STATUS_LABEL[status]}`);
+      toast("success", `Статус: ${STATUS_LABEL[status]}`);
       setConfirmStatus(null);
     } catch (e: unknown) {
       toast("error", e instanceof Error ? e.message : "Ошибка");
     }
   };
 
-  const nextActions = getNextActions(order.status);
+  const subtotal = draft.reduce((s, c) => s + c.unit_price * c.quantity, 0);
+  const serviceFee = Math.round(subtotal * 0.10);
+  const total = subtotal + serviceFee;
+
+  const menuItems = state.items.filter(i =>
+    i.is_available &&
+    (search ? i.name.toLowerCase().includes(search.toLowerCase()) : i.category_id === activeCat)
+  );
 
   return (
     <>
-      <header className="topbar">
-        <button className="iconbtn borderless" onClick={() => setRoute({ id: "w_orders" })}>
+      {/* Topbar */}
+      <header className="topbar" style={{ height: 56 }}>
+        <button className="iconbtn borderless" onClick={() => setRoute({ id: "w_tables" })}>
           <Icon name="back" />
         </button>
-        <div style={{ fontWeight: 600 }}>
-          Заказ #{order.id}
-          {order.table && <span style={{ marginLeft: 10, fontWeight: 400, color: "var(--ink-3)", fontSize: 13 }}>Стол {order.table.number}</span>}
+        <div>
+          <span style={{ fontWeight: 700, fontSize: 15 }}>Заказ #{order.id}</span>
+          {order.table && (
+            <span style={{ marginLeft: 10, fontWeight: 400, color: "var(--ink-3)", fontSize: 13 }}>
+              Стол {order.table.number}{order.table.location ? ` · ${order.table.location}` : ""}
+            </span>
+          )}
         </div>
         <StatusBadge status={order.status} />
         <div style={{ flex: 1 }} />
-        {order.status === "served" && (
-          <button className="btn primary" onClick={() => setRoute({ id: "w_payment", orderId })}>
-            <Icon name="card" /> Оплатить
+        {isDirty && (
+          <button className="btn primary" onClick={save} disabled={saving}>
+            {saving ? <><span className="spin" /> Сохранение...</> : <><Icon name="check" /> Сохранить</>}
           </button>
         )}
-        {(order.status === "pending" || order.status === "in_progress") && (
-          <button className="btn" onClick={() => setRoute({ id: "w_order_create", orderId, tableId: order.table_id })}>
-            <Icon name="edit" /> Редактировать
+        {order.status === "served" && !isDirty && (
+          <button className="btn success" onClick={() => setRoute({ id: "w_payment", orderId })}>
+            <Icon name="card" /> Оплатить
           </button>
         )}
       </header>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", height: "calc(100vh - 56px)", overflow: "hidden" }}>
-        {/* Items */}
-        <div style={{ overflow: "auto", padding: 24 }}>
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 600 }}>
-              Позиции заказа
-            </div>
-            <div>
-              {order.items.map(item => (
-                <div key={item.id} style={{ padding: "12px 18px", borderBottom: "1px solid var(--line-1)", display: "flex", gap: 12, alignItems: "center" }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 500, fontSize: 14 }}>{item.menu_item?.name ?? `Позиция #${item.menu_item_id}`}</div>
-                    {item.note && (
-                      <div style={{ fontSize: 12, color: "var(--amber)", marginTop: 2, display: "flex", gap: 4, alignItems: "center" }}>
-                        <Icon name="note" size={11} /> {item.note}
-                      </div>
-                    )}
+      {/* Body: receipt (left) + menu browser or info (right) */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "360px 1fr",
+        height: "calc(100vh - 56px)",
+        overflow: "hidden",
+      }}>
+
+        {/* ── Left: receipt panel ── */}
+        <div style={{
+          display: "flex", flexDirection: "column",
+          borderRight: "1px solid var(--line-1)",
+          background: "var(--bg-paper)",
+          minHeight: 0,
+        }}>
+          {/* Meta row */}
+          <div style={{
+            flexShrink: 0,
+            padding: "9px 16px",
+            borderBottom: "1px solid var(--line-1)",
+            display: "flex", gap: 14, alignItems: "center", fontSize: 12, color: "var(--ink-3)",
+          }}>
+            <span>{fmtTime(order.created_at)}</span>
+            <span style={{ fontWeight: 600, color: "var(--ink-2)" }}>{elapsedMin(order.created_at)}м</span>
+            {order.waiter && <span style={{ marginLeft: "auto" }}>{order.waiter.full_name}</span>}
+          </div>
+
+          {/* Items list */}
+          <div style={{ flex: 1, overflowY: "auto" }}>
+            {draft.map((item, idx) => (
+              <div key={idx} style={{
+                padding: "9px 14px",
+                borderBottom: "1px solid var(--line-1)",
+                display: "flex", alignItems: "center", gap: 10,
+              }}>
+                {canEdit ? (
+                  <div style={{
+                    display: "flex", alignItems: "center",
+                    border: "1px solid var(--line-2)", borderRadius: 6,
+                    overflow: "hidden", flexShrink: 0,
+                  }}>
+                    <button
+                      style={{ width: 26, height: 26, background: "var(--bg-sunken)", border: 0, cursor: "pointer", fontSize: 16, color: "var(--red)", lineHeight: 1 }}
+                      onClick={() => setQty(idx, item.quantity - 1)}
+                    >−</button>
+                    <div style={{ width: 26, textAlign: "center", fontWeight: 700, fontSize: 13 }}>{item.quantity}</div>
+                    <button
+                      style={{ width: 26, height: 26, background: "var(--bg-sunken)", border: 0, cursor: "pointer", fontSize: 16, color: "var(--brand)", lineHeight: 1 }}
+                      onClick={() => setQty(idx, item.quantity + 1)}
+                    >+</button>
                   </div>
-                  <div style={{ fontSize: 13, color: "var(--ink-3)" }}>×{item.quantity}</div>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{fmtKZT(item.line_total)}</div>
+                ) : (
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-3)", minWidth: 28, textAlign: "center", flexShrink: 0 }}>
+                    ×{item.quantity}
+                  </span>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 500, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {item.name}
+                  </div>
+                  {item.note && (
+                    <div style={{ fontSize: 11, color: "var(--amber)", marginTop: 2, display: "flex", gap: 3, alignItems: "center" }}>
+                      <Icon name="note" size={10} /> {item.note}
+                    </div>
+                  )}
                 </div>
-              ))}
+                <div style={{ fontWeight: 600, fontSize: 13, flexShrink: 0 }}>
+                  {fmtKZT(item.unit_price * item.quantity)}
+                </div>
+              </div>
+            ))}
+            {draft.length === 0 && (
+              <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--ink-4)" }}>
+                Нет позиций
+              </div>
+            )}
+          </div>
+
+          {/* Customer note */}
+          {order.customer_note && (
+            <div style={{
+              flexShrink: 0,
+              padding: "8px 14px", borderTop: "1px solid var(--amber-line)",
+              background: "var(--amber-soft)", fontSize: 12.5, color: "var(--amber)",
+              display: "flex", gap: 6, alignItems: "flex-start",
+            }}>
+              <Icon name="note" size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+              {order.customer_note}
             </div>
-            <div style={{ padding: "12px 18px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", color: "var(--ink-3)", fontSize: 13, marginBottom: 4 }}>
-                <span>Подытог</span><span>{fmtKZT(parseFloat(order.total_amount) / 1.1)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", color: "var(--ink-3)", fontSize: 13, marginBottom: 8 }}>
-                <span>Сервис 10%</span><span>{fmtKZT(parseFloat(order.total_amount) - parseFloat(order.total_amount) / 1.1)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16, fontWeight: 700 }}>
-                <span>Итого</span><span>{fmtKZT(order.total_amount)}</span>
-              </div>
+          )}
+
+          {/* Totals */}
+          <div style={{ flexShrink: 0, borderTop: "1px solid var(--line-1)", padding: "12px 16px", background: "var(--bg-canvas)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "var(--ink-3)", fontSize: 12.5, marginBottom: 3 }}>
+              <span>Подытог</span><span>{fmtKZT(subtotal)}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "var(--ink-3)", fontSize: 12.5, marginBottom: 8 }}>
+              <span>Сервис 10%</span><span>{fmtKZT(serviceFee)}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 18 }}>
+              <span>Итого</span><span className="num">{fmtKZT(total)}</span>
             </div>
           </div>
 
-          {order.events.length > 0 && (
-            <div className="card">
-              <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 600 }}>История</div>
-              <div style={{ padding: "12px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
-                {[...order.events].reverse().map(ev => (
-                  <div key={ev.id} style={{ display: "flex", gap: 12, fontSize: 13 }}>
-                    <div style={{ fontSize: 11, color: "var(--ink-3)", minWidth: 80, paddingTop: 1 }}>
-                      {fmtTime(ev.created_at)}
-                    </div>
-                    <div>{ev.message || formatEvent(ev.event_type, ev.from_status, ev.to_status)}</div>
-                  </div>
-                ))}
-              </div>
+          {/* Action buttons */}
+          {nextActions.length > 0 && (
+            <div style={{ flexShrink: 0, padding: "10px 14px", borderTop: "1px solid var(--line-1)", display: "flex", flexDirection: "column", gap: 8 }}>
+              {nextActions.map(action => (
+                <button
+                  key={action.status}
+                  className={`btn block ${action.kind ?? ""}`}
+                  style={{ minHeight: 44, justifyContent: "center" }}
+                  onClick={() => setConfirmStatus(action.status)}
+                >
+                  <Icon name={action.icon ?? "forward"} /> {action.label}
+                </button>
+              ))}
             </div>
           )}
         </div>
 
-        {/* Meta + actions */}
-        <aside style={{ borderLeft: "1px solid var(--line-1)", background: "var(--bg-paper)", overflow: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
-          <div className="card">
-            <div style={{ padding: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-                <span style={{ color: "var(--ink-3)", fontSize: 13 }}>Приоритет</span>
-                <PriorityChip priority={order.priority} />
+        {/* ── Right: menu browser (editable) or info (read-only) ── */}
+        {canEdit ? (
+          <div style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+            {/* Search + categories */}
+            <div style={{ flexShrink: 0, padding: "12px 16px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-paper)" }}>
+              <div style={{ position: "relative", marginBottom: 10 }}>
+                <input
+                  className="input"
+                  placeholder="Поиск по меню..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  style={{ paddingLeft: 34 }}
+                />
+                <Icon name="search" size={14} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: "var(--ink-4)" }} />
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                <span style={{ color: "var(--ink-3)", fontSize: 13 }}>Официант</span>
-                <span style={{ fontSize: 13, fontWeight: 500 }}>{order.waiter?.full_name ?? "—"}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                <span style={{ color: "var(--ink-3)", fontSize: 13 }}>Создан</span>
-                <span style={{ fontSize: 13 }}>{fmtTime(order.created_at)}</span>
-              </div>
-              {order.customer_note && (
-                <div style={{ marginTop: 10, padding: 10, background: "var(--bg-sunken)", borderRadius: "var(--r)", fontSize: 13 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4, color: "var(--ink-3)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>Комментарий гостя</div>
-                  {order.customer_note}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {nextActions.length > 0 && (
-            <div className="card">
-              <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--line-1)", fontWeight: 600, fontSize: 14 }}>Действия</div>
-              <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                {nextActions.map(action => (
+              <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
+                {state.categories.map(c => (
                   <button
-                    key={action.status}
-                    className={`btn block ${action.kind ?? ""}`}
-                    onClick={() => setConfirmStatus(action.status)}
+                    key={c.id}
+                    className={`btn sm ${activeCat === c.id && !search ? "primary" : ""}`}
+                    onClick={() => { setActiveCat(c.id); setSearch(""); }}
+                    style={{ flex: "none" }}
                   >
-                    <Icon name={action.icon ?? "forward"} /> {action.label}
+                    {c.name}
                   </button>
                 ))}
               </div>
             </div>
-          )}
-        </aside>
+
+            {/* Items grid */}
+            <div style={{ flex: 1, overflow: "auto", padding: 14, background: "var(--bg-canvas)" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10 }}>
+                {menuItems.map(item => {
+                  const inDraft = draft.filter(c => c.menu_item_id === item.id).reduce((s, c) => s + c.quantity, 0);
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => addToOrder(item)}
+                      style={{
+                        textAlign: "left",
+                        background: "var(--bg-paper)",
+                        border: `1px solid ${inDraft ? "var(--brand)" : "var(--line-1)"}`,
+                        borderRadius: "var(--r)",
+                        padding: 12,
+                        cursor: "pointer",
+                        color: "inherit",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 5,
+                        minHeight: 100,
+                        position: "relative",
+                        boxShadow: inDraft ? "0 0 0 2px var(--brand) inset" : "var(--sh-1)",
+                        transition: "all 100ms",
+                      }}
+                    >
+                      {inDraft > 0 && (
+                        <div style={{
+                          position: "absolute", top: 7, right: 7,
+                          background: "var(--brand)", color: "white",
+                          borderRadius: 999, width: 22, height: 22,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 11, fontWeight: 700,
+                        }}>
+                          {inDraft}
+                        </div>
+                      )}
+                      <div style={{ fontWeight: 600, fontSize: 13, lineHeight: 1.3, paddingRight: inDraft > 0 ? 28 : 0 }}>{item.name}</div>
+                      {item.description && (
+                        <div style={{ fontSize: 11, color: "var(--ink-3)", lineHeight: 1.4, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" } as React.CSSProperties}>
+                          {item.description}
+                        </div>
+                      )}
+                      <div style={{ marginTop: "auto", fontWeight: 700, fontSize: 14 }}>{fmtKZT(item.price)}</div>
+                    </button>
+                  );
+                })}
+                {menuItems.length === 0 && (
+                  <div style={{ gridColumn: "1 / -1", padding: "40px 0", textAlign: "center", color: "var(--ink-3)" }}>
+                    Ничего не найдено
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Info + history panel for non-editable orders */
+          <div style={{ overflow: "auto", padding: 20 }}>
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div style={{ padding: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                  <span style={{ color: "var(--ink-3)", fontSize: 13 }}>Приоритет</span>
+                  <PriorityChip priority={order.priority} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                  <span style={{ color: "var(--ink-3)", fontSize: 13 }}>Официант</span>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>{order.waiter?.full_name ?? "—"}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--ink-3)", fontSize: 13 }}>Создан</span>
+                  <span style={{ fontSize: 13 }}>{fmtTime(order.created_at)}</span>
+                </div>
+              </div>
+            </div>
+
+            {order.events.length > 0 && (
+              <div className="card">
+                <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 600 }}>История</div>
+                <div style={{ padding: "12px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+                  {[...order.events].reverse().map(ev => (
+                    <div key={ev.id} style={{ display: "flex", gap: 12, fontSize: 13 }}>
+                      <div style={{ fontSize: 11, color: "var(--ink-3)", minWidth: 80, paddingTop: 1 }}>
+                        {fmtTime(ev.created_at)}
+                      </div>
+                      <div>{ev.message || formatEvent(ev.event_type, ev.from_status, ev.to_status)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {confirmStatus && (
@@ -183,15 +421,9 @@ export function OrderDetails({ orderId, setRoute }: Props) {
 
 function getNextActions(status: string): Array<{ status: OrderStatus; label: string; kind?: string; icon?: string }> {
   switch (status) {
-    // Waiter can only cancel pending orders (kitchen handles pending→in_progress)
-    case "pending":     return [
-      { status: "cancelled", label: "Отменить заказ", kind: "danger", icon: "x" },
-    ];
-    // Kitchen handles in_progress→ready; waiter has no action here
+    case "pending":     return [{ status: "cancelled", label: "Отменить заказ", kind: "danger", icon: "x" }];
     case "in_progress": return [];
-    // Waiter confirms delivery
     case "ready":       return [{ status: "served", label: "Подан гостю", kind: "primary", icon: "tray" }];
-    // Payment is handled via the topbar button → WaiterPayment screen
     case "served":      return [];
     default:            return [];
   }
@@ -257,10 +489,10 @@ export function WaiterPayment({ orderId, setRoute }: PaymentProps) {
   };
 
   const METHODS: Array<{ id: "cash" | "card" | "qr" | "account"; label: string; icon: string }> = [
-    { id: "cash",    label: "Наличные",  icon: "cash"    },
-    { id: "card",    label: "Карта",     icon: "card"    },
-    { id: "qr",      label: "QR / Kaspi", icon: "qr"    },
-    { id: "account", label: "На счёт",  icon: "receipt" },
+    { id: "cash",    label: "Наличные",   icon: "cash"    },
+    { id: "card",    label: "Карта",      icon: "card"    },
+    { id: "qr",      label: "QR / Kaspi", icon: "qr"     },
+    { id: "account", label: "На счёт",   icon: "receipt" },
   ];
 
   return (
