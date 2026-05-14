@@ -20,8 +20,17 @@ settings = get_settings()
 configure_logging()
 
 
+def _run_migrations() -> None:
+    from alembic.config import Config
+    from alembic import command as alembic_command
+    ini = Path(__file__).parent.parent / "alembic.ini"
+    cfg = Config(str(ini))
+    alembic_command.upgrade(cfg, "head")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    _run_migrations()
     if settings.auto_create_tables:
         Base.metadata.create_all(bind=engine)
     from app.seed import seed_initial_users
