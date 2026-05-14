@@ -249,12 +249,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ws.onmessage = (e) => {
       try {
         const ev: LiveEvent = JSON.parse(e.data);
-        // Refresh relevant boards on any order event
+        if (ev.type === "connected") return;
         const t = loadToken();
         if (!t) return;
-        if (ev.type === "order_updated" || ev.type === "order_created" || ev.type === "status_changed") {
-          api.orders(t, { limit: 200 }).then((orders) => dispatch({ type: "SET_ORDERS", orders })).catch(() => {});
+        if (ev.type === "order.created" || ev.type === "order.updated" || ev.type === "order.status_changed" || ev.type === "order.paid") {
+          api.order(t, ev.order_id).then((order) => dispatch({ type: "UPSERT_ORDER", order })).catch(() => {});
           api.tableOverview(t).then((tables) => dispatch({ type: "SET_TABLES", tables })).catch(() => {});
+          const role = loadUser()?.role;
+          if (role === "kitchen" || role === "manager") {
+            api.kitchenBoard(t).then((board) => dispatch({ type: "SET_KITCHEN_BOARD", board })).catch(() => {});
+          }
         }
       } catch {
         // ignore malformed messages
@@ -284,10 +288,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (user.role === "waiter") {
           const board = await api.waiterBoard(token);
           dispatch({ type: "SET_WAITER_BOARD", board });
-          dispatch({ type: "SET_ORDERS", orders: [...board.active_orders, ...board.ready_orders] });
+          dispatch({ type: "SET_ORDERS", orders: board.active_orders });
         } else if (user.role === "kitchen") {
-          const board = await api.kitchenBoard(token);
+          const [board, orders] = await Promise.all([
+            api.kitchenBoard(token),
+            api.orders(token, { limit: 200 }),
+          ]);
           dispatch({ type: "SET_KITCHEN_BOARD", board });
+          dispatch({ type: "SET_ORDERS", orders });
         } else if (user.role === "manager") {
           const [orders, devices] = await Promise.all([
             api.orders(token, { limit: 200 }),

@@ -21,6 +21,7 @@ from app.models import (
     User,
     UserRole,
 )
+from app.realtime import manager as websocket_manager
 from app.schemas import (
     DiscountCreate,
     DiscountRead,
@@ -147,7 +148,7 @@ def list_payments(
 
 
 @router.post("/orders/{order_id}/payments", response_model=PaymentRead, status_code=status.HTTP_201_CREATED)
-def create_payment(
+async def create_payment(
     order_id: int,
     payload: PaymentCreate,
     db: Session = Depends(get_db),
@@ -203,6 +204,18 @@ def create_payment(
     )
     db.commit()
     db.refresh(payment)
+    await websocket_manager.publish(
+        ["manager", "kitchen", f"waiter:{order.waiter_id}"],
+        {
+            "type": "order.paid",
+            "order_id": order.id,
+            "status": order.status.value,
+            "table_id": order.table_id,
+            "waiter_id": order.waiter_id,
+            "priority": order.priority.value,
+            "total_amount": str(order.total_amount),
+        },
+    )
     return payment
 
 

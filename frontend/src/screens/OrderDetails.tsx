@@ -56,7 +56,7 @@ export function OrderDetails({ orderId, setRoute }: Props) {
             <Icon name="card" /> Оплатить
           </button>
         )}
-        {order.status !== "paid" && order.status !== "cancelled" && order.status !== "served" && (
+        {(order.status === "pending" || order.status === "in_progress") && (
           <button className="btn" onClick={() => setRoute({ id: "w_order_create", orderId, tableId: order.table_id })}>
             <Icon name="edit" /> Редактировать
           </button>
@@ -183,23 +183,26 @@ export function OrderDetails({ orderId, setRoute }: Props) {
 
 function getNextActions(status: string): Array<{ status: OrderStatus; label: string; kind?: string; icon?: string }> {
   switch (status) {
+    // Waiter can only cancel pending orders (kitchen handles pending→in_progress)
     case "pending":     return [
-      { status: "in_progress", label: "Начать готовку",   kind: "primary", icon: "play"    },
-      { status: "cancelled",   label: "Отменить заказ",   kind: "danger",  icon: "x"       },
+      { status: "cancelled", label: "Отменить заказ", kind: "danger", icon: "x" },
     ];
-    case "in_progress": return [{ status: "ready",  label: "Готово к подаче", kind: "success", icon: "check" }];
-    case "ready":       return [{ status: "served", label: "Подан гостю",     kind: "primary", icon: "tray"  }];
-    case "served":      return [{ status: "paid",   label: "Оплачен",         kind: "success", icon: "card"  }];
+    // Kitchen handles in_progress→ready; waiter has no action here
+    case "in_progress": return [];
+    // Waiter confirms delivery
+    case "ready":       return [{ status: "served", label: "Подан гостю", kind: "primary", icon: "tray" }];
+    // Payment is handled via the topbar button → WaiterPayment screen
+    case "served":      return [];
     default:            return [];
   }
 }
 
 function formatEvent(type: string, from: string | null, to: string | null) {
-  if (type === "status_changed" && from && to) {
+  if (type === "order.status_changed" && from && to) {
     return `${STATUS_LABEL[from] ?? from} → ${STATUS_LABEL[to] ?? to}`;
   }
-  if (type === "created") return "Заказ создан";
-  if (type === "updated") return "Заказ обновлён";
+  if (type === "order.created") return "Заказ создан";
+  if (type === "order.updated") return "Заказ обновлён";
   return type;
 }
 
