@@ -52,11 +52,16 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
         borderLeft: `4px solid ${borderLeftColor}`,
         borderRadius: "var(--r)",
         boxShadow: "var(--sh-1)",
+        // Bounded height + flex column so items section can scroll
+        // while header and action button stay always visible
+        maxHeight: 420,
+        display: "flex",
+        flexDirection: "column",
         overflow: "hidden",
       }}
     >
-      {/* Header */}
-      <div style={{ padding: "10px 14px 8px", display: "flex", alignItems: "center", gap: 10, borderBottom: "1px solid var(--line-1)" }}>
+      {/* Header — always visible */}
+      <div style={{ flexShrink: 0, padding: "10px 14px 8px", display: "flex", alignItems: "center", gap: 10, borderBottom: "1px solid var(--line-1)" }}>
         <div style={{ flex: 1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>
@@ -83,8 +88,9 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
         </div>
       </div>
 
+      {/* Action button — always visible, never scrolls away */}
       {order.status === "pending" && (
-        <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--line-1)", background: "var(--st-progress-bg)" }}>
+        <div style={{ flexShrink: 0, padding: "10px 14px", borderBottom: "1px solid var(--line-1)", background: "var(--st-progress-bg)" }}>
           <button
             className="btn primary block"
             style={{ minHeight: 48, fontSize: 15, fontWeight: 800 }}
@@ -94,9 +100,8 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
           </button>
         </div>
       )}
-
       {order.status === "in_progress" && (
-        <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--line-1)", background: "var(--st-ready-bg)" }}>
+        <div style={{ flexShrink: 0, padding: "10px 14px", borderBottom: "1px solid var(--line-1)", background: "var(--st-ready-bg)" }}>
           <button
             className="btn success block"
             style={{ minHeight: 48, fontSize: 15, fontWeight: 800 }}
@@ -107,8 +112,8 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
         </div>
       )}
 
-      {/* Items */}
-      <div style={{ padding: "8px 14px" }}>
+      {/* Items — scrollable when list is long */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 14px" }}>
         {order.items.map((it, i) => (
           <div key={it.id} style={{ padding: "6px 0", borderBottom: i < order.items.length - 1 ? "1px dashed var(--line-1)" : 0 }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
@@ -129,17 +134,17 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
         ))}
       </div>
 
-      {/* Customer note */}
+      {/* Customer note — always visible at bottom */}
       {order.customer_note && (
-        <div style={{ margin: "0 14px 8px", padding: "6px 10px", background: "var(--amber-soft)", border: "1px solid var(--amber-line)", borderRadius: 4, fontSize: 12 }}>
+        <div style={{ flexShrink: 0, margin: "0 14px 8px", padding: "6px 10px", background: "var(--amber-soft)", border: "1px solid var(--amber-line)", borderRadius: 4, fontSize: 12 }}>
           <div style={{ fontSize: 10, color: "var(--amber)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>Внимание</div>
           {order.customer_note}
         </div>
       )}
 
-      {/* Footer: ready orders show pickup reminder */}
+      {/* Footer — ready status indicator */}
       {order.status === "ready" && (
-        <div style={{ padding: "10px 14px", background: "var(--bg-canvas)", borderTop: "1px solid var(--line-1)", display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: "var(--st-served-fg)" }}>
+        <div style={{ flexShrink: 0, padding: "10px 14px", background: "var(--bg-canvas)", borderTop: "1px solid var(--line-1)", display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: "var(--st-served-fg)" }}>
           <Icon name="check" size={15} /> Ожидает официанта
         </div>
       )}
@@ -230,9 +235,9 @@ export function KitchenDisplay() {
               </span>
               <span className="num">{col.orders.length}</span>
             </div>
-            {/* Column body */}
+            {/* Column body — minHeight: 0 required so flex item can shrink below content size */}
             <div style={{
-              flex: 1, overflow: "auto", padding: 10,
+              flex: 1, minHeight: 0, overflowY: "auto", padding: 10,
               background: "var(--bg-paper)",
               border: `1px solid ${col.fg}`,
               borderRadius: "0 0 var(--r) var(--r)",
