@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useApp } from "../lib/store";
+import { api } from "../lib/api";
 import type { Order } from "../types";
 import { Icon } from "../components/Icon";
 import { StatusBadge, fmtTime } from "../components/UI";
@@ -42,8 +43,6 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
   const borderLeftColor = urgent ? "var(--pri-urgent)" : isLate ? "var(--pri-urgent)" : isWarn ? "var(--amber)" : "var(--brand)";
   const outerBorder = isLate || urgent ? "var(--pri-urgent)" : "var(--line-1)";
 
-  const nextStatus = order.status === "pending" ? "in_progress" : order.status === "in_progress" ? "ready" : null;
-  const nextLabel  = order.status === "pending" ? "Начать готовить" : "Готов";
 
   return (
     <div
@@ -96,6 +95,18 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
         </div>
       )}
 
+      {order.status === "in_progress" && (
+        <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--line-1)", background: "var(--st-ready-bg)" }}>
+          <button
+            className="btn success block"
+            style={{ minHeight: 48, fontSize: 15, fontWeight: 800 }}
+            onClick={() => onAction(order.id, "ready")}
+          >
+            <Icon name="check" /> Готово — к выдаче
+          </button>
+        </div>
+      )}
+
       {/* Items */}
       <div style={{ padding: "8px 14px" }}>
         {order.items.map((it, i) => (
@@ -126,23 +137,12 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
         </div>
       )}
 
-      {/* Actions */}
-      <div style={{ display: "flex", gap: 6, padding: "8px 10px 10px", background: "var(--bg-canvas)", borderTop: "1px solid var(--line-1)" }}>
-        {nextStatus && (
-          <button
-            className={`btn ${order.status === "in_progress" ? "success" : "primary"}`}
-            style={{ flex: 1, minHeight: 44, fontSize: 13.5 }}
-            onClick={() => onAction(order.id, nextStatus)}
-          >
-            <Icon name={order.status === "in_progress" ? "check" : "play"} /> {nextLabel}
-          </button>
-        )}
-        {order.status === "ready" && (
-          <div style={{ flex: 1, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 600, color: "var(--st-served-fg)" }}>
-            <Icon name="check" size={16} /> Готово к выдаче
-          </div>
-        )}
-      </div>
+      {/* Footer: ready orders show pickup reminder */}
+      {order.status === "ready" && (
+        <div style={{ padding: "10px 14px", background: "var(--bg-canvas)", borderTop: "1px solid var(--line-1)", display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: "var(--st-served-fg)" }}>
+          <Icon name="check" size={15} /> Ожидает официанта
+        </div>
+      )}
     </div>
   );
 }
@@ -182,6 +182,7 @@ export function KitchenDisplay() {
 
   const totalActive = cols.slice(0, 2).reduce((s, c) => s + c.orders.length, 0);
   const urgentCount = cols.slice(0, 2).flatMap(c => c.orders).filter(o => o.priority === "urgent").length;
+  const readyToday = board?.metrics.find(m => m.key === "ready_today")?.value ?? 0;
 
   return (
     <>
@@ -259,7 +260,7 @@ export function KitchenDisplay() {
         borderTop: "1px solid var(--line-1)",
         display: "flex", alignItems: "center", gap: 24, fontSize: 13,
       }}>
-        <div><span style={{ color: "var(--ink-3)" }}>Готово сегодня</span> · <b className="num">{cols[2].orders.length}</b></div>
+        <div><span style={{ color: "var(--ink-3)" }}>Готово сегодня</span> · <b className="num">{readyToday}</b></div>
         <div className="spacer" style={{ flex: 1 }} />
         <span style={{ color: "var(--ink-3)", fontSize: 11 }}>Подсказка: нажмите карточку чтобы изменить статус</span>
       </div>
@@ -270,28 +271,40 @@ export function KitchenDisplay() {
 // ─── KitchenHistory ───────────────────────────────────────────────────────────
 
 export function KitchenHistory() {
-  const { state, refreshOrders } = useApp();
+  const { state } = useApp();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const orders = [...state.orders]
-    .filter(o => ["ready", "served", "paid"].includes(o.status))
-    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
-    .slice(0, 60);
+  const load = useCallback(async () => {
+    if (!state.token) return;
+    setLoading(true);
+    try {
+      const data = await api.orders(state.token, { include_completed: true, limit: 60 });
+      setOrders(data.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()));
+    } finally {
+      setLoading(false);
+    }
+  }, [state.token]);
+
+  useEffect(() => { load(); }, [load]);
 
   return (
     <>
       <div className="page-head">
         <div>
           <h2>История</h2>
-          <div className="sub">Завершённые и поданные заказы</div>
+          <div className="sub">Все заказы прошедшие через кухню</div>
         </div>
         <div className="actions">
-          <button className="btn sm" onClick={refreshOrders}><Icon name="sort" /> Обновить</button>
+          <button className="btn sm" onClick={load} disabled={loading}>
+            <Icon name="sort" /> {loading ? "Загрузка..." : "Обновить"}
+          </button>
         </div>
       </div>
       <div className="page-body">
         <div className="card" style={{ overflow: "hidden" }}>
           <div className="list-head" style={{ gridTemplateColumns: "70px 80px 1fr 120px 110px" }}>
-            <div>#</div><div>Стол</div><div>Позиции</div><div>Статус</div><div>Время</div>
+            <div>#</div><div>Стол</div><div>Позиции</div><div>Статус</div><div>Готово в</div>
           </div>
           {orders.map(o => (
             <div key={o.id} className="list-row" style={{ gridTemplateColumns: "70px 80px 1fr 120px 110px" }}>
@@ -301,14 +314,16 @@ export function KitchenHistory() {
                 {o.items.map(i => `${i.quantity}× ${i.menu_item?.name ?? `#${i.menu_item_id}`}`).join(", ")}
               </div>
               <div><StatusBadge status={o.status} /></div>
-              <div className="mono" style={{ fontSize: 12.5, color: "var(--ink-3)" }}>{fmtTime(o.updated_at)}</div>
+              <div className="mono" style={{ fontSize: 12.5, color: "var(--ink-3)" }}>
+                {o.ready_at ? fmtTime(o.ready_at) : "—"}
+              </div>
             </div>
           ))}
-          {!orders.length && (
+          {!loading && !orders.length && (
             <div className="empty" style={{ padding: 40 }}>
               <div className="empty-ico"><Icon name="clock" size={26} /></div>
               <h4>История пуста</h4>
-              <p>Завершённые заказы появятся здесь.</p>
+              <p>Заказы появятся здесь после приготовления.</p>
             </div>
           )}
         </div>

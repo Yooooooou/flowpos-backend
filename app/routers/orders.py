@@ -1,8 +1,8 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date, time
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import get_db
@@ -207,6 +207,7 @@ def list_orders(
     waiter_id: int | None = None,
     q: str | None = None,
     limit: int = Query(default=100, ge=1, le=200),
+    include_completed: bool = Query(default=False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[Order]:
@@ -214,7 +215,11 @@ def list_orders(
     if current_user.role == UserRole.waiter:
         stmt = stmt.where(Order.waiter_id == current_user.id)
     elif current_user.role == UserRole.kitchen:
-        stmt = stmt.where(Order.status.in_([OrderStatus.pending, OrderStatus.in_progress, OrderStatus.ready]))
+        if include_completed:
+            # History view: all orders kitchen has worked on (ready_at is set)
+            stmt = stmt.where(Order.ready_at.isnot(None))
+        else:
+            stmt = stmt.where(Order.status.in_([OrderStatus.pending, OrderStatus.in_progress, OrderStatus.ready]))
     if only_active:
         stmt = stmt.where(Order.status.in_(list(ACTIVE_STATUSES)))
     if status_filter is not None:
@@ -248,10 +253,13 @@ def kitchen_board(
     pending = [order for order in orders if order.status == OrderStatus.pending]
     in_progress = [order for order in orders if order.status == OrderStatus.in_progress]
     ready = [order for order in orders if order.status == OrderStatus.ready]
+    today_start = datetime.combine(date.today(), time.min, tzinfo=timezone.utc)
+    ready_today = db.scalar(select(func.count(Order.id)).where(Order.ready_at >= today_start)) or 0
     metrics = [
         DashboardMetric(key="pending", label="Pending", value=len(pending)),
         DashboardMetric(key="in_progress", label="In Progress", value=len(in_progress)),
         DashboardMetric(key="ready", label="Ready", value=len(ready)),
+        DashboardMetric(key="ready_today", label="Готово сегодня", value=ready_today),
     ]
     return KitchenBoardResponse(pending=pending, in_progress=in_progress, ready=ready, metrics=metrics)
 

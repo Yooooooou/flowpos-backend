@@ -99,7 +99,7 @@ function Shell() {
   const nav = NAV_BY_ROLE[user!.role];
   const isFullscreen = FULLSCREEN_ROUTES.includes(route.id);
 
-  const liveCount = orders.filter(o => ["pending", "in_progress", "ready"].includes(o.status)).length;
+  const liveCount = orders.filter(o => !["paid", "cancelled"].includes(o.status)).length;
 
   const initials = user!.full_name
     .split(" ")
