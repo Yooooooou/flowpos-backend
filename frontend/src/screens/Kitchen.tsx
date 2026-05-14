@@ -32,7 +32,11 @@ const SLA = {
 // ─── KDS Card ─────────────────────────────────────────────────────────────────
 // Fills 100% of its snap-page. Items grow to fill space; action button pinned bottom.
 
-function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, status: string) => void }) {
+function KDSCard({ order, onAction, onItemAction }: {
+  order: Order;
+  onAction: (id: number, status: string) => void;
+  onItemAction: (orderId: number, itemId: number, status: string) => void;
+}) {
   useTick();
 
   const elapsed = elapsedSec(order.created_at);
@@ -98,16 +102,30 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
             padding: "7px 0",
             borderBottom: i < order.items.length - 1 ? "1px dashed var(--line-1)" : "none",
           }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-              <span className="mono" style={{ minWidth: 28, fontSize: 14, fontWeight: 700, color: "var(--brand)", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {order.status === "in_progress" && (
+                <button
+                  onClick={() => onItemAction(order.id, it.id, it.status === "ready" ? "pending" : "ready")}
+                  style={{
+                    width: 24, height: 24, borderRadius: 4, flexShrink: 0,
+                    background: it.status === "ready" ? "var(--olive)" : "transparent",
+                    border: `2px solid ${it.status === "ready" ? "var(--olive)" : "var(--line-2)"}`,
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "all 120ms",
+                  }}
+                >
+                  {it.status === "ready" && <Icon name="check" size={13} style={{ color: "#fff" }} />}
+                </button>
+              )}
+              <span className="mono" style={{ minWidth: 28, fontSize: 14, fontWeight: 700, color: it.status === "ready" ? "var(--olive)" : "var(--brand)", flexShrink: 0 }}>
                 ×{it.quantity}
               </span>
-              <span style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.3 }}>
+              <span style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.3, textDecoration: it.status === "ready" ? "line-through" : "none", color: it.status === "ready" ? "var(--ink-3)" : "inherit" }}>
                 {it.menu_item?.name ?? `#${it.menu_item_id}`}
               </span>
             </div>
             {it.note && (
-              <div style={{ marginLeft: 38, marginTop: 4, fontSize: 12, color: "var(--amber)", fontWeight: 500, display: "flex", gap: 5, alignItems: "center" }}>
+              <div style={{ marginLeft: order.status === "in_progress" ? 72 : 38, marginTop: 4, fontSize: 12, color: "var(--amber)", fontWeight: 500, display: "flex", gap: 5, alignItems: "center" }}>
                 <Icon name="note" size={11} /> {it.note}
               </div>
             )}
@@ -130,7 +148,7 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
       )}
 
       {/* Action — pinned bottom, large touch target */}
-      <div style={{ flexShrink: 0, padding: "12px 16px", borderTop: "1px solid var(--line-1)" }}>
+      <div style={{ flexShrink: 0, padding: "12px 16px", borderTop: "1px solid var(--line-1)", display: "flex", flexDirection: "column", gap: 8 }}>
         {order.status === "pending" && (
           <button
             className="btn primary"
@@ -158,6 +176,15 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
             <Icon name="check" size={16} /> Ожидает официанта
           </div>
         )}
+        {(order.status === "pending" || order.status === "in_progress") && (
+          <button
+            className="btn ghost"
+            style={{ width: "100%", justifyContent: "center", gap: 6, fontSize: 13, color: "var(--red, #e03)" }}
+            onClick={() => onAction(order.id, "cancelled")}
+          >
+            <Icon name="close" size={14} /> Отменить заказ
+          </button>
+        )}
       </div>
     </div>
   );
@@ -174,7 +201,7 @@ const KDS_COLUMNS = [
 // ─── KitchenDisplay ───────────────────────────────────────────────────────────
 
 export function KitchenDisplay() {
-  const { state, refreshKitchenBoard, changeStatus, toast } = useApp();
+  const { state, refreshKitchenBoard, changeStatus, updateItemStatus, toast } = useApp();
   const board = state.kitchenBoard;
 
   useEffect(() => {
@@ -188,6 +215,14 @@ export function KitchenDisplay() {
       await refreshKitchenBoard();
     } catch {
       toast("error", "Ошибка обновления статуса");
+    }
+  };
+
+  const handleItemAction = async (orderId: number, itemId: number, status: string) => {
+    try {
+      await updateItemStatus(orderId, itemId, status);
+    } catch {
+      toast("error", "Ошибка обновления позиции");
     }
   };
 
@@ -271,7 +306,7 @@ export function KitchenDisplay() {
               borderRadius: "0 0 var(--r) var(--r)",
             }}>
               {col.orders.length ? col.orders.map(o => (
-                <KDSCard key={o.id} order={o} onAction={handleAction} />
+                <KDSCard key={o.id} order={o} onAction={handleAction} onItemAction={handleItemAction} />
               )) : (
                 <div style={{ flex: 1, display: "grid", placeItems: "center", color: "var(--ink-4)", textAlign: "center" }}>
                   <div>

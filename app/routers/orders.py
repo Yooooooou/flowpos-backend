@@ -24,6 +24,7 @@ from app.schemas import (
     DashboardMetric,
     KitchenBoardResponse,
     OrderCreate,
+    OrderItemStatusUpdate,
     OrderRead,
     OrderStatusUpdate,
     OrderSyncRequest,
@@ -449,3 +450,42 @@ async def cancel_order(
         db,
         current_user,
     )
+
+
+@router.patch("/{order_id}/items/{item_id}/status")
+async def update_item_status(
+    order_id: int,
+    item_id: int,
+    payload: OrderItemStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    item = db.get(OrderItem, item_id)
+    if item is None or item.order_id != order_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+
+    item.status = payload.status
+    db.flush()
+
+    # Auto-advance order to "ready" when all items are marked ready by kitchen
+    if payload.status == "ready":
+        order = db.scalar(_order_stmt().where(Order.id == order_id))
+        if order and order.status == OrderStatus.in_progress and all(i.status == "ready" for i in order.items):
+            order.status = OrderStatus.ready
+            now = datetime.now(timezone.utc)
+            if order.ready_at is None:
+                order.ready_at = now
+            db.add(OrderEvent(
+                order=order,
+                actor_id=current_user.id,
+                event_type="order.status_changed",
+                from_status=OrderStatus.in_progress,
+                to_status=OrderStatus.ready,
+                message="All items ready",
+            ))
+
+    db.commit()
+    order = db.scalar(_order_stmt().where(Order.id == order_id))
+    if order:
+        await _broadcast_order("order.updated", order)
+    return {"ok": True}

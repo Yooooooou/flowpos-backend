@@ -174,9 +174,14 @@ class OrderItemRead(BaseModel):
     unit_price: Decimal
     line_total: Decimal
     note: str | None = None
+    status: str = "pending"
     menu_item: MenuItemRead | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class OrderItemStatusUpdate(BaseModel):
+    status: str  # "ready" | "served" | "pending"
 
 
 class OrderEventRead(BaseModel):

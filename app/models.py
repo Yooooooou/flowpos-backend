@@ -207,6 +207,7 @@ class OrderItem(Base):
     unit_price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     line_total: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
 
     order: Mapped[Order] = relationship(back_populates="items")
     menu_item: Mapped[MenuItem] = relationship(back_populates="order_items")

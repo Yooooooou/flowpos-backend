@@ -73,6 +73,7 @@ export interface OrderItem {
   unit_price: string;
   line_total: string;
   note: string | null;
+  status: string;  // "pending" | "ready" | "served"
   menu_item?: MenuItem | null;
 }
 

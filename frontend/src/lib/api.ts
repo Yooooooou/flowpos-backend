@@ -269,6 +269,14 @@ export const api = {
     return request<{ shift_id: number; status: string; payments_total: string; refunds_total: string; net_total: string; payments_by_method: Array<{ method: string; count: number; total: string }>; orders_paid: number }>(`/pos/shifts/${shiftId}/report`, {}, token);
   },
 
+  updateItemStatus(token: string, orderId: number, itemId: number, status: string) {
+    return request<{ ok: boolean }>(
+      `/orders/${orderId}/items/${itemId}/status`,
+      { method: "PATCH", body: JSON.stringify({ status }) },
+      token
+    );
+  },
+
   // Print jobs
   printJobs(token: string) {
     return request<PrintJob[]>("/peripherals/jobs", {}, token);

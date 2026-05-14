@@ -185,6 +185,7 @@ interface AppContext {
     discount_value?: number;
     tip_amount?: number;
   }) => Promise<Payment>;
+  updateItemStatus: (orderId: number, itemId: number, status: string) => Promise<void>;
   openShift: (cash: number) => Promise<Shift>;
   closeShift: (cash: number, note?: string) => Promise<Shift>;
 }
@@ -417,6 +418,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return payment;
   }, [state.token, state.payments]);
 
+  const updateItemStatus = useCallback(async (orderId: number, itemId: number, status: string) => {
+    if (!state.token) throw new Error("Not authenticated");
+    await api.updateItemStatus(state.token, orderId, itemId, status);
+    const order = await api.order(state.token, orderId);
+    dispatch({ type: "UPSERT_ORDER", order });
+  }, [state.token]);
+
   const openShift = useCallback(async (cash: number) => {
     if (!state.token) throw new Error("Not authenticated");
     const shift = await api.openShift(state.token, cash);
@@ -449,6 +457,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createOrder,
       updateOrder,
       changeStatus,
+      updateItemStatus,
       createPayment,
       openShift,
       closeShift,
