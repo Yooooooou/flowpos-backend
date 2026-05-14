@@ -255,29 +255,24 @@ export function KitchenDisplay() {
               <span className="num" style={{ fontSize: 15, fontWeight: 700 }}>{col.orders.length}</span>
             </div>
 
-            {/* Column body — snap-scroll, one card per page, card natural height */}
+            {/* Column body — scrollable list of full cards */}
             <div style={{
               flex: 1,
               minHeight: 0,
-              overflowY: "scroll",
-              scrollSnapType: "y mandatory" as React.CSSProperties["scrollSnapType"],
+              overflowY: "auto",
               scrollbarWidth: "thin" as React.CSSProperties["scrollbarWidth"],
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              padding: 8,
               background: "var(--bg-canvas)",
               border: `1px solid ${col.fg}`,
               borderRadius: "0 0 var(--r) var(--r)",
             }}>
               {col.orders.length ? col.orders.map(o => (
-                <div key={o.id} style={{
-                  height: "100%",
-                  padding: 10,
-                  boxSizing: "border-box" as React.CSSProperties["boxSizing"],
-                  scrollSnapAlign: "start" as React.CSSProperties["scrollSnapAlign"],
-                  scrollSnapStop: "always" as React.CSSProperties["scrollSnapStop"],
-                }}>
-                  <KDSCard order={o} onAction={handleAction} />
-                </div>
+                <KDSCard key={o.id} order={o} onAction={handleAction} />
               )) : (
-                <div style={{ height: "100%", display: "grid", placeItems: "center", color: "var(--ink-4)", textAlign: "center" }}>
+                <div style={{ flex: 1, display: "grid", placeItems: "center", color: "var(--ink-4)", textAlign: "center" }}>
                   <div>
                     <Icon name="check" size={30} style={{ opacity: 0.3 }} />
                     <div style={{ marginTop: 10, fontSize: 13 }}>Нет заказов</div>
