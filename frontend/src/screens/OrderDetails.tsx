@@ -64,7 +64,7 @@ export function OrderDetails({ orderId, setRoute }: Props) {
     );
   }
 
-  const canAddItems = ["pending", "in_progress"].includes(order.status);
+  const canAddItems = !["paid", "cancelled"].includes(order.status);
   const hasAdditions = additions.length > 0;
   const nextActions = getNextActions(order.status);
 
@@ -154,7 +154,7 @@ export function OrderDetails({ orderId, setRoute }: Props) {
             {saving ? <><span className="spin" /> Отправка...</> : <><Icon name="forward" /> Отправить</>}
           </button>
         )}
-        {order.status === "served" && !hasAdditions && (
+        {!["paid", "cancelled"].includes(order.status) && (
           <button className="btn success" onClick={() => setRoute({ id: "w_payment", orderId })}>
             <Icon name="card" /> Оплатить
           </button>
