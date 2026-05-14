@@ -33,7 +33,7 @@ interface Props {
 }
 
 export function OrderDetails({ orderId, setRoute }: Props) {
-  const { state, changeStatus, updateOrder, toast } = useApp();
+  const { state, changeStatus, createOrder, toast } = useApp();
   const order = state.orders.find(o => o.id === orderId);
 
   // baseline: items already sent to kitchen (read-only for waiter)
@@ -90,20 +90,20 @@ export function OrderDetails({ orderId, setRoute }: Props) {
     );
   };
 
-  // Send only additions to kitchen; baseline is preserved as-is
+  // Create a new order for the same table — shows as a separate KDS card
   const send = async () => {
     setSaving(true);
     try {
-      await updateOrder(orderId, {
-        items: [...baseline, ...additions].map(c => ({
+      const newOrder = await createOrder({
+        table_id: order!.table_id,
+        items: additions.map(c => ({
           menu_item_id: c.menu_item_id,
           quantity: c.quantity,
           note: c.note || undefined,
         })),
       });
-      setBaseline(prev => [...prev, ...additions]);
       setAdditions([]);
-      toast("success", "Позиции отправлены на кухню");
+      toast("success", `Заказ #${newOrder.id} отправлен на кухню`);
     } catch (e: unknown) {
       toast("error", e instanceof Error ? e.message : "Ошибка");
     } finally {
