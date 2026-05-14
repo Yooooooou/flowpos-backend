@@ -30,9 +30,15 @@ const SLA = {
 } as Record<string, { warn: number; late: number }>;
 
 // ─── KDS Card ─────────────────────────────────────────────────────────────────
+// Collapsed: order #, table, timer, start time + action button
+// Expanded:  + items list + customer note
 
 function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, status: string) => void }) {
   useTick();
+  // Pending orders default open (cook needs to see what to prepare)
+  // In-progress and ready default closed (just need the action button + timer)
+  const [expanded, setExpanded] = useState(order.status === "pending");
+
   const elapsed = elapsedSec(order.created_at);
   const sla = SLA[order.status] ?? SLA.in_progress;
   const isLate = elapsed > sla.late;
@@ -43,57 +49,112 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
   const borderLeftColor = urgent ? "var(--pri-urgent)" : isLate ? "var(--pri-urgent)" : isWarn ? "var(--amber)" : "var(--brand)";
   const outerBorder = isLate || urgent ? "var(--pri-urgent)" : "var(--line-1)";
 
-
   return (
-    <div
-      style={{
-        background: "var(--bg-paper)",
-        border: `1px solid ${outerBorder}`,
-        borderLeft: `4px solid ${borderLeftColor}`,
-        borderRadius: "var(--r)",
-        boxShadow: "var(--sh-1)",
-        // Bounded height + flex column so items section can scroll
-        // while header and action button stay always visible
-        maxHeight: 420,
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-      }}
-    >
-      {/* Header — always visible */}
-      <div style={{ flexShrink: 0, padding: "10px 14px 8px", display: "flex", alignItems: "center", gap: 10, borderBottom: "1px solid var(--line-1)" }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>
+    <div style={{
+      background: "var(--bg-paper)",
+      border: `1px solid ${outerBorder}`,
+      borderLeft: `4px solid ${borderLeftColor}`,
+      borderRadius: "var(--r)",
+      boxShadow: "var(--sh-1)",
+      overflow: "hidden",
+    }}>
+
+      {/* ── Header — always visible, click to expand/collapse ── */}
+      <div
+        onClick={() => setExpanded(e => !e)}
+        style={{
+          padding: "10px 14px",
+          display: "flex", alignItems: "center", gap: 10,
+          cursor: "pointer", userSelect: "none",
+          borderBottom: expanded ? "1px solid var(--line-1)" : "none",
+        }}
+      >
+        {/* Left: order # + badges + table */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+            <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>
               #{order.id}
             </span>
             {urgent && (
-              <span className="badge" style={{ background: "var(--pri-urgent)", color: "white", borderColor: "var(--pri-urgent)", padding: "2px 8px" }}>
-                <Icon name="fire" size={10} /> СРОЧНО
+              <span className="badge" style={{ background: "var(--pri-urgent)", color: "white", borderColor: "var(--pri-urgent)", padding: "1px 6px", fontSize: 10 }}>
+                <Icon name="fire" size={9} /> СРОЧНО
               </span>
             )}
             {order.priority === "high" && !urgent && (
-              <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: "var(--amber-soft)", color: "var(--amber)" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 3, background: "var(--amber-soft)", color: "var(--amber)" }}>
                 Высокий
               </span>
             )}
           </div>
-          <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 2 }}>
-            {order.table ? <><b>Стол {order.table.number}</b> · {order.table.location}</> : `Стол #${order.table_id}`}
+          <div style={{ fontSize: 12, color: "var(--ink-3)" }}>
+            {order.table
+              ? <><b style={{ color: "var(--ink-2)" }}>Стол {order.table.number}</b> · {order.table.location}</>
+              : `Стол #${order.table_id}`}
+            {/* Item count hint when collapsed */}
+            {!expanded && (
+              <span style={{ marginLeft: 6, color: "var(--ink-4)" }}>
+                · {order.items.reduce((s, i) => s + i.quantity, 0)} поз.
+              </span>
+            )}
           </div>
         </div>
-        <div style={{ textAlign: "right" }}>
-          <div className="mono" style={{ fontSize: 22, fontWeight: 700, color: timerColor, lineHeight: 1 }}>{fmtDuration(elapsed)}</div>
-          <div style={{ fontSize: 10.5, color: "var(--ink-3)", marginTop: 2 }}>{fmtTime(order.created_at)}</div>
+
+        {/* Right: timer + chevron */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ textAlign: "right" }}>
+            <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: timerColor, lineHeight: 1 }}>
+              {fmtDuration(elapsed)}
+            </div>
+            <div style={{ fontSize: 10, color: "var(--ink-4)", marginTop: 2 }}>
+              {fmtTime(order.created_at)}
+            </div>
+          </div>
+          <div style={{ color: "var(--ink-4)", display: "flex" }}>
+            <Icon name={expanded ? "up" : "down"} size={14} />
+          </div>
         </div>
       </div>
 
-      {/* Action button — always visible, never scrolls away */}
+      {/* ── Expandable: items + customer note ── */}
+      {expanded && (
+        <>
+          <div style={{ padding: "6px 14px 8px" }}>
+            {order.items.map((it, i) => (
+              <div key={it.id} style={{ padding: "5px 0", borderBottom: i < order.items.length - 1 ? "1px dashed var(--line-1)" : "none" }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <div className="mono" style={{
+                    minWidth: 28, height: 22, borderRadius: 4, background: "var(--bg-sunken)",
+                    display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700, color: "var(--ink-1)",
+                    flexShrink: 0,
+                  }}>×{it.quantity}</div>
+                  <div style={{ flex: 1, fontWeight: 600, fontSize: 13.5, paddingTop: 2 }}>
+                    {it.menu_item?.name ?? `#${it.menu_item_id}`}
+                  </div>
+                </div>
+                {it.note && (
+                  <div style={{ marginLeft: 36, marginTop: 3, fontSize: 11.5, color: "var(--amber)", fontWeight: 500, display: "flex", gap: 5, alignItems: "center" }}>
+                    <Icon name="note" size={10} /> {it.note}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {order.customer_note && (
+            <div style={{ margin: "0 14px 10px", padding: "5px 10px", background: "var(--amber-soft)", border: "1px solid var(--amber-line)", borderRadius: 4, fontSize: 12 }}>
+              <span style={{ fontSize: 10, color: "var(--amber)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginRight: 6 }}>Внимание</span>
+              {order.customer_note}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Action button — always visible ── */}
       {order.status === "pending" && (
-        <div style={{ flexShrink: 0, padding: "10px 14px", borderBottom: "1px solid var(--line-1)", background: "var(--st-progress-bg)" }}>
+        <div style={{ padding: "8px 14px 10px", borderTop: expanded ? "1px solid var(--line-1)" : "none", background: "var(--st-progress-bg)" }}>
           <button
             className="btn primary block"
-            style={{ minHeight: 48, fontSize: 15, fontWeight: 800 }}
+            style={{ minHeight: 42, fontWeight: 700, fontSize: 14 }}
             onClick={() => onAction(order.id, "in_progress")}
           >
             <Icon name="play" /> Начать готовку
@@ -101,51 +162,19 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
         </div>
       )}
       {order.status === "in_progress" && (
-        <div style={{ flexShrink: 0, padding: "10px 14px", borderBottom: "1px solid var(--line-1)", background: "var(--st-ready-bg)" }}>
+        <div style={{ padding: "8px 14px 10px", borderTop: expanded ? "1px solid var(--line-1)" : "none", background: "var(--st-ready-bg)" }}>
           <button
             className="btn success block"
-            style={{ minHeight: 48, fontSize: 15, fontWeight: 800 }}
+            style={{ minHeight: 42, fontWeight: 700, fontSize: 14 }}
             onClick={() => onAction(order.id, "ready")}
           >
             <Icon name="check" /> Готово — к выдаче
           </button>
         </div>
       )}
-
-      {/* Items — scrollable when list is long */}
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 14px" }}>
-        {order.items.map((it, i) => (
-          <div key={it.id} style={{ padding: "6px 0", borderBottom: i < order.items.length - 1 ? "1px dashed var(--line-1)" : 0 }}>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-              <div className="mono" style={{
-                minWidth: 28, height: 24, borderRadius: 4, background: "var(--bg-sunken)",
-                display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700, color: "var(--ink-1)",
-              }}>×{it.quantity}</div>
-              <div style={{ flex: 1, fontWeight: 600, fontSize: 14 }}>
-                {it.menu_item?.name ?? `#${it.menu_item_id}`}
-              </div>
-            </div>
-            {it.note && (
-              <div style={{ marginLeft: 36, marginTop: 4, fontSize: 12, color: "var(--amber)", fontWeight: 500, display: "flex", gap: 6, alignItems: "center" }}>
-                <Icon name="note" size={11} /> {it.note}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Customer note — always visible at bottom */}
-      {order.customer_note && (
-        <div style={{ flexShrink: 0, margin: "0 14px 8px", padding: "6px 10px", background: "var(--amber-soft)", border: "1px solid var(--amber-line)", borderRadius: 4, fontSize: 12 }}>
-          <div style={{ fontSize: 10, color: "var(--amber)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>Внимание</div>
-          {order.customer_note}
-        </div>
-      )}
-
-      {/* Footer — ready status indicator */}
       {order.status === "ready" && (
-        <div style={{ flexShrink: 0, padding: "10px 14px", background: "var(--bg-canvas)", borderTop: "1px solid var(--line-1)", display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: "var(--st-served-fg)" }}>
-          <Icon name="check" size={15} /> Ожидает официанта
+        <div style={{ padding: "8px 14px", borderTop: expanded ? "1px solid var(--line-1)" : "none", display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "var(--st-served-fg)" }}>
+          <Icon name="check" size={13} /> Ожидает официанта
         </div>
       )}
     </div>
@@ -235,13 +264,17 @@ export function KitchenDisplay() {
               </span>
               <span className="num">{col.orders.length}</span>
             </div>
-            {/* Column body — minHeight: 0 required so flex item can shrink below content size */}
+            {/* Column body — minHeight: 0 lets flex item shrink; scrollbar-gutter reserves fixed space */}
             <div style={{
-              flex: 1, minHeight: 0, overflowY: "auto", padding: 10,
+              flex: 1, minHeight: 0,
+              overflowY: "auto",
+              scrollbarWidth: "thin" as React.CSSProperties["scrollbarWidth"],
+              scrollbarGutter: "stable" as React.CSSProperties["scrollbarGutter"],
+              padding: 10,
               background: "var(--bg-paper)",
               border: `1px solid ${col.fg}`,
               borderRadius: "0 0 var(--r) var(--r)",
-              display: "flex", flexDirection: "column", gap: 10,
+              display: "flex", flexDirection: "column", gap: 8,
             }}>
               {col.orders.length ? col.orders.map(o => (
                 <KDSCard key={o.id} order={o} onAction={handleAction} />
