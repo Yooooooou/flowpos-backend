@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useApp } from "../lib/store";
 import type { Order, TableOverview, TableStatus } from "../types";
 import { Icon } from "../components/Icon";
-import { StatusBadge, fmtKZT, fmtTime, TABLE_STATUS_LABEL, Modal } from "../components/UI";
+import { StatusBadge, fmtKZT, fmtTime, TABLE_STATUS_LABEL } from "../components/UI";
 
 // ─── WaiterTables ─────────────────────────────────────────────────────────────
 
@@ -10,229 +10,191 @@ interface SetRoute {
   (r: { id: string; tableId?: number; orderId?: number }): void;
 }
 
+function elapsedMin(dateStr: string) {
+  return Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
+}
+
 export function WaiterTables({ setRoute }: { setRoute: SetRoute }) {
   const { state, refreshTables } = useApp();
-  const [filter, setFilter] = useState<"all" | TableStatus>("all");
-  const [search, setSearch] = useState("");
-  const [openTableId, setOpenTableId] = useState<number | null>(null);
 
-  const tables = state.tables.filter(t => {
-    if (filter !== "all" && t.status !== filter) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      return t.number.toLowerCase().includes(q) || (t.location ?? "").toLowerCase().includes(q);
-    }
-    return true;
-  });
-
-  const counts = { all: state.tables.length, free: 0, occupied: 0, reserved: 0, cleaning: 0 } as Record<string, number>;
-  state.tables.forEach(t => counts[t.status]++);
-
-  const openTable = openTableId != null ? state.tables.find(t => t.id === openTableId) : null;
+  const freeCount  = state.tables.filter(t => t.status === "free").length;
+  const busyCount  = state.tables.filter(t => t.status === "occupied").length;
+  const readyCount = state.orders.filter(o => o.status === "ready").length;
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h2>Столы</h2>
-          <div className="sub">Касание стола откроет действия</div>
+      <header className="topbar" style={{ height: 60 }}>
+        <h1 style={{ fontSize: 18 }}>Столы</h1>
+        <div style={{ display: "flex", gap: 16, marginLeft: 16, fontSize: 13, color: "var(--ink-3)" }}>
+          <span><b style={{ color: "var(--ink-1)" }}>{busyCount}</b> занято</span>
+          <span><b style={{ color: "var(--ink-1)" }}>{freeCount}</b> свободно</span>
+          {readyCount > 0 && (
+            <span style={{ color: "var(--st-ready-fg)", fontWeight: 600 }}>
+              <b>{readyCount}</b> готово к подаче
+            </span>
+          )}
         </div>
-        <div className="actions">
-          <div className="segmented">
-            {(["all", "free", "occupied", "reserved", "cleaning"] as const).map(s => (
-              <div key={s} className={`seg ${filter === s ? "active" : ""}`} onClick={() => setFilter(s)}>
-                {s === "all" ? "Все" : TABLE_STATUS_LABEL[s]}
-                <span style={{ color: "var(--ink-4)", fontVariantNumeric: "tabular-nums" }}>{counts[s]}</span>
-              </div>
-            ))}
-          </div>
-          <div style={{ position: "relative" }}>
-            <input
-              className="input"
-              placeholder="Поиск стола..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              style={{ paddingLeft: 32, minWidth: 180 }}
-            />
-            <Icon name="search" size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--ink-4)" }} />
-          </div>
-          <button className="btn sm" onClick={refreshTables}><Icon name="sort" />Обновить</button>
+        <div className="spacer" />
+        <button className="btn sm" onClick={refreshTables}><Icon name="sort" /> Обновить</button>
+      </header>
+
+      <div style={{
+        padding: 16,
+        height: "calc(100vh - 60px)",
+        overflowY: "auto",
+        background: "var(--bg-canvas)",
+      }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
+          {state.tables.map(table => {
+            const order = state.orders.find(
+              o => o.table_id === table.id && !["paid", "cancelled"].includes(o.status)
+            ) ?? null;
+            return <TableCard key={table.id} table={table} order={order} setRoute={setRoute} />;
+          })}
         </div>
       </div>
-
-      <div className="page-body">
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
-          {tables.map(t => (
-            <TableTile key={t.id} table={t} onClick={() => setOpenTableId(t.id)} />
-          ))}
-        </div>
-        {!tables.length && (
-          <div className="empty">
-            <div className="empty-ico"><Icon name="tables" size={26} /></div>
-            <h4>Нет столов по фильтру</h4>
-            <p>Сбросьте фильтр или измените поиск.</p>
-          </div>
-        )}
-      </div>
-
-      {openTable && (
-        <TableDetailModal
-          table={openTable}
-          orders={state.orders.filter(o => o.table_id === openTable.id)}
-          onClose={() => setOpenTableId(null)}
-          setRoute={setRoute}
-        />
-      )}
     </>
   );
 }
 
-// ─── TableTile ────────────────────────────────────────────────────────────────
+// ─── TableCard ────────────────────────────────────────────────────────────────
 
-function TableTile({ table, onClick }: { table: TableOverview; onClick: () => void }) {
-  const sideColor: Record<TableStatus, string> = {
-    free:     "var(--tb-free)",
-    occupied: "var(--tb-occupied)",
-    reserved: "var(--tb-reserved)",
-    cleaning: "var(--tb-cleaning)",
-  };
-  const badgeStyle: Record<TableStatus, React.CSSProperties> = {
-    free:     { background: "var(--olive-soft)",  color: "var(--olive)" },
-    occupied: { background: "var(--brand-50)",    color: "var(--brand-700)" },
-    reserved: { background: "var(--amber-soft)",  color: "var(--amber)" },
-    cleaning: { background: "var(--bg-sunken)",   color: "var(--ink-2)" },
-  };
+const STATUS_ACCENT: Record<string, string> = {
+  pending:     "var(--brand)",
+  in_progress: "var(--amber)",
+  ready:       "var(--olive)",
+  served:      "var(--ink-3)",
+};
 
-  const minutesOpen = 0;
+function TableCard({ table, order, setRoute }: {
+  table: TableOverview;
+  order: Order | null;
+  setRoute: SetRoute;
+}) {
+  if (!order) {
+    // Free / reserved / cleaning table
+    const canOpen = table.status === "free";
+    return (
+      <button
+        onClick={() => canOpen && setRoute({ id: "w_order_create", tableId: table.id })}
+        style={{
+          display: "flex", flexDirection: "column",
+          background: "var(--bg-sunken)",
+          border: "1px solid var(--line-1)",
+          borderRadius: "var(--r)",
+          padding: "14px 14px 12px",
+          minHeight: 170,
+          cursor: canOpen ? "pointer" : "default",
+          color: "inherit",
+          textAlign: "left",
+          transition: "box-shadow 120ms",
+          opacity: canOpen ? 1 : 0.6,
+        }}
+        onMouseEnter={e => { if (canOpen) e.currentTarget.style.boxShadow = "var(--sh-2)"; }}
+        onMouseLeave={e => { e.currentTarget.style.boxShadow = ""; }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <span style={{ fontSize: 22, fontWeight: 700, color: "var(--ink-2)" }}>{table.number}</span>
+          <span style={{ fontSize: 11, color: "var(--ink-4)" }}>{table.location || "Зал"}</span>
+        </div>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {canOpen
+            ? <div style={{
+                width: 48, height: 48, borderRadius: 24,
+                background: "var(--line-2)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <Icon name="plus" size={24} style={{ color: "var(--ink-3)" }} />
+              </div>
+            : <span style={{ fontSize: 12, color: "var(--ink-4)" }}>{TABLE_STATUS_LABEL[table.status]}</span>
+          }
+        </div>
+        <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 8 }}>
+          {table.seats} мест
+        </div>
+      </button>
+    );
+  }
+
+  // Occupied table with active order
+  const accent = STATUS_ACCENT[order.status] ?? "var(--brand)";
+  const mins = elapsedMin(order.created_at);
+  const isReady = order.status === "ready";
+  const MAX_ITEMS = 5;
+  const visibleItems = order.items.slice(0, MAX_ITEMS);
+  const hiddenCount  = order.items.length - MAX_ITEMS;
 
   return (
     <button
-      onClick={onClick}
+      onClick={() => setRoute({ id: "w_order_details", orderId: order.id })}
       style={{
-        position: "relative", textAlign: "left",
+        display: "flex", flexDirection: "column",
         background: "var(--bg-paper)",
-        border: "1px solid var(--line-1)",
-        borderLeft: `4px solid ${sideColor[table.status]}`,
+        border: `1px solid ${isReady ? "var(--olive)" : "var(--line-1)"}`,
+        borderTop: `3px solid ${accent}`,
         borderRadius: "var(--r)",
-        padding: "16px 16px 14px",
-        cursor: "pointer", minHeight: 132,
-        display: "flex", flexDirection: "column", gap: 8,
-        boxShadow: "var(--sh-1)", color: "inherit",
-        transition: "transform 120ms ease, box-shadow 120ms ease",
+        padding: "12px 14px 10px",
+        minHeight: 170,
+        cursor: "pointer",
+        color: "inherit",
+        textAlign: "left",
+        boxShadow: isReady ? "0 0 0 2px rgba(80,160,80,0.15)" : "var(--sh-1)",
+        transition: "box-shadow 120ms",
       }}
-      onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "var(--sh-2)"; }}
-      onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = "var(--sh-1)"; }}
+      onMouseEnter={e => { e.currentTarget.style.boxShadow = "var(--sh-2)"; }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = isReady ? "0 0 0 2px rgba(80,160,80,0.15)" : "var(--sh-1)"; }}
     >
-      <div style={{ display: "flex", alignItems: "flex-start" }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, color: "var(--ink-3)", fontWeight: 500, letterSpacing: "0.04em", textTransform: "uppercase" }}>Стол</div>
-          <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1 }}>{table.number}</div>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+        <div>
+          <span style={{ fontSize: 20, fontWeight: 700, lineHeight: 1 }}>{table.number}</span>
+          <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6 }}>{table.location || "Зал"}</span>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 12, color: "var(--ink-3)" }}>{table.seats} мест · {table.location || "Зал"}</div>
-          <div style={{ marginTop: 6 }}>
-            <span className="badge neutral" style={{ ...badgeStyle[table.status], borderColor: "transparent" }}>
-              <span className="dot" />{TABLE_STATUS_LABEL[table.status]}
-            </span>
+          <div className="mono" style={{ fontSize: 11, color: "var(--ink-4)" }}>{fmtTime(order.created_at)}</div>
+          <div className="mono" style={{
+            fontSize: 11, fontWeight: 600,
+            color: mins > 30 ? "var(--pri-urgent)" : "var(--ink-3)",
+            marginTop: 1,
+          }}>
+            {mins}м
           </div>
         </div>
       </div>
 
-      {table.active_order_id ? (
-        <div style={{ marginTop: "auto", paddingTop: 10, borderTop: "1px dashed var(--line-1)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            <span style={{ fontSize: 12, color: "var(--ink-3)" }}>Заказ #{table.active_order_id}</span>
-            <StatusBadge status={table.active_order_status ?? "pending"} />
+      {/* Items list */}
+      <div style={{ flex: 1 }}>
+        {visibleItems.map(it => (
+          <div key={it.id} style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 3 }}>
+            <span style={{
+              minWidth: 20, height: 18, borderRadius: 3,
+              background: accent, color: "#fff",
+              fontSize: 10, fontWeight: 700,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              flexShrink: 0,
+            }}>
+              {it.quantity}
+            </span>
+            <span style={{ fontSize: 12, lineHeight: 1.3, color: "var(--ink-1)" }}>
+              {it.menu_item?.name ?? `#${it.menu_item_id}`}
+            </span>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span className="num" style={{ fontWeight: 600 }}>{fmtKZT(table.active_order_total ?? 0)}</span>
-            {minutesOpen > 0 && (
-              <span className="mono" style={{ fontSize: 12, color: minutesOpen > 30 ? "var(--pri-urgent)" : "var(--ink-3)" }}>{minutesOpen}м</span>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div style={{ marginTop: "auto", paddingTop: 10, borderTop: "1px dashed var(--line-1)", fontSize: 12, color: "var(--ink-4)" }}>
-          {table.status === "free" ? "Готов принять гостей" : table.status === "reserved" ? "Забронирован" : table.status === "cleaning" ? "Идёт уборка" : "—"}
-        </div>
-      )}
+        ))}
+        {hiddenCount > 0 && (
+          <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>+{hiddenCount} ещё</div>
+        )}
+      </div>
+
+      {/* Footer: total */}
+      <div style={{
+        marginTop: 8, paddingTop: 8,
+        borderTop: "1px dashed var(--line-1)",
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+      }}>
+        <StatusBadge status={order.status} />
+        <span className="num" style={{ fontWeight: 700, fontSize: 14 }}>{fmtKZT(order.total_amount)}</span>
+      </div>
     </button>
-  );
-}
-
-// ─── TableDetailModal ─────────────────────────────────────────────────────────
-
-function TableDetailModal({ table, orders, onClose, setRoute }: {
-  table: TableOverview;
-  orders: Order[];
-  onClose: () => void;
-  setRoute: SetRoute;
-}) {
-  const { changeStatus, toast, refreshTables } = useApp();
-  const activeOrders = orders.filter(o => !["paid", "cancelled"].includes(o.status));
-
-  const handleStatus = async (orderId: number, status: string) => {
-    try {
-      await changeStatus(orderId, status as Order["status"]);
-      toast("success", `Статус обновлён`);
-      await refreshTables();
-    } catch {
-      toast("error", "Ошибка обновления статуса");
-    }
-  };
-
-  return (
-    <Modal
-      title={`Стол ${table.number}`}
-      sub={`${table.seats} мест · ${table.location || "Зал"}`}
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn ghost" onClick={onClose}>Закрыть</button>
-          <button
-            className="btn primary"
-            onClick={() => { onClose(); setRoute({ id: "w_order_create", tableId: table.id }); }}
-          >
-            <Icon name="plus" /> Новый заказ
-          </button>
-        </>
-      }
-    >
-      {activeOrders.length === 0 ? (
-        <div style={{ padding: "20px 0", textAlign: "center", color: "var(--ink-3)", fontSize: 13, background: "var(--bg-canvas)", borderRadius: "var(--r-sm)" }}>
-          Нет активных заказов на этом столе
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {activeOrders.map(o => (
-            <div key={o.id} style={{ padding: 12, border: "1px solid var(--line-1)", borderRadius: "var(--r-sm)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <span style={{ fontWeight: 600 }}>#{o.id}</span>
-                <StatusBadge status={o.status} />
-              </div>
-              <div style={{ fontSize: 12, color: "var(--ink-3)", marginBottom: 8 }}>
-                {o.items.length} позиций · {fmtKZT(o.total_amount)} · {fmtTime(o.created_at)}
-              </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button className="btn sm" onClick={() => { onClose(); setRoute({ id: "w_order_details", orderId: o.id }); }}>
-                  <Icon name="edit" /> Открыть
-                </button>
-                {o.status === "ready" && (
-                  <button className="btn success sm" onClick={() => handleStatus(o.id, "served")}>
-                    <Icon name="check" /> Подан
-                  </button>
-                )}
-                {o.status === "served" && (
-                  <button className="btn primary sm" onClick={() => { onClose(); setRoute({ id: "w_payment", orderId: o.id }); }}>
-                    <Icon name="card" /> Оплата
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </Modal>
   );
 }
 
