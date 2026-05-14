@@ -3,6 +3,7 @@ import { Login } from "./screens/Login";
 import { WaiterTables, WaiterOrders } from "./screens/Waiter";
 import { OrderCreate } from "./screens/OrderCreate";
 import { OrderDetails, WaiterPayment } from "./screens/OrderDetails";
+import { TableSession, WaiterTablePayment } from "./screens/TableSession";
 import { KitchenDisplay, KitchenHistory } from "./screens/Kitchen";
 import {
   ManagerDashboard,
@@ -22,7 +23,7 @@ import { Icon } from "./components/Icon";
 // ─── Route types ──────────────────────────────────────────────────────────────
 
 type RouteId =
-  | "w_tables" | "w_orders" | "w_order_create" | "w_order_details" | "w_payment" | "w_payments" | "w_shifts"
+  | "w_tables" | "w_orders" | "w_order_create" | "w_order_details" | "w_payment" | "w_table_session" | "w_table_payment" | "w_payments" | "w_shifts"
   | "k_kds" | "k_history"
   | "m_dashboard" | "m_orders" | "m_kitchen" | "m_tables" | "m_menu" | "m_users" | "m_payments" | "m_shifts" | "m_peripherals" | "m_analytics";
 
@@ -84,7 +85,7 @@ const ROLE_SECTION_LABEL: Record<UserRole, string> = {
 
 // ─── Full-screen routes (no sidebar) ─────────────────────────────────────────
 
-const FULLSCREEN_ROUTES: RouteId[] = ["w_order_create", "w_payment"];
+const FULLSCREEN_ROUTES: RouteId[] = ["w_order_create", "w_payment", "w_table_payment"];
 
 // ─── App shell ────────────────────────────────────────────────────────────────
 
@@ -115,6 +116,8 @@ function Shell() {
       case "w_order_create": return <OrderCreate tableId={route.tableId} orderId={route.orderId} setRoute={setRoute} />;
       case "w_order_details":return <OrderDetails orderId={route.orderId!} setRoute={setRoute} />;
       case "w_payment":      return <WaiterPayment orderId={route.orderId!} setRoute={setRoute} />;
+      case "w_table_session":return <TableSession tableId={route.tableId!} setRoute={setRoute} />;
+      case "w_table_payment":return <WaiterTablePayment tableId={route.tableId!} setRoute={setRoute} />;
       case "w_payments":     return <ManagerPayments />;
       case "w_shifts":       return <ManagerShifts />;
       case "k_kds":          return <KitchenDisplay />;

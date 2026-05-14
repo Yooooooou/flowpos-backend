@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useApp } from "../lib/store";
-import type { Order, TableOverview, TableStatus } from "../types";
+import type { Order, TableOverview } from "../types";
+import { dominantStatus } from "./TableSession";
 import { Icon } from "../components/Icon";
 import { StatusBadge, fmtKZT, fmtTime, TABLE_STATUS_LABEL } from "../components/UI";
 
@@ -46,10 +47,10 @@ export function WaiterTables({ setRoute }: { setRoute: SetRoute }) {
       }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
           {state.tables.map(table => {
-            const order = state.orders.find(
+            const orders = state.orders.filter(
               o => o.table_id === table.id && !["paid", "cancelled"].includes(o.status)
-            ) ?? null;
-            return <TableCard key={table.id} table={table} order={order} setRoute={setRoute} />;
+            );
+            return <TableCard key={table.id} table={table} orders={orders} setRoute={setRoute} />;
           })}
         </div>
       </div>
@@ -66,12 +67,12 @@ const STATUS_ACCENT: Record<string, string> = {
   served:      "var(--ink-3)",
 };
 
-function TableCard({ table, order, setRoute }: {
+function TableCard({ table, orders, setRoute }: {
   table: TableOverview;
-  order: Order | null;
+  orders: Order[];
   setRoute: SetRoute;
 }) {
-  if (!order) {
+  if (orders.length === 0) {
     // Free / reserved / cleaning table
     const canOpen = table.status === "free";
     return (
@@ -116,17 +117,20 @@ function TableCard({ table, order, setRoute }: {
     );
   }
 
-  // Occupied table with active order
-  const accent = STATUS_ACCENT[order.status] ?? "var(--brand)";
-  const mins = elapsedMin(order.created_at);
-  const isReady = order.status === "ready";
+  // Occupied table — combine all active orders
+  const status = dominantStatus(orders);
+  const accent = STATUS_ACCENT[status] ?? "var(--brand)";
+  const mins = elapsedMin(orders[0].created_at);
+  const isReady = status === "ready";
+  const allItems = orders.flatMap(o => o.items);
+  const totalAmount = orders.reduce((s, o) => s + parseFloat(o.total_amount), 0);
   const MAX_ITEMS = 5;
-  const visibleItems = order.items.slice(0, MAX_ITEMS);
-  const hiddenCount  = order.items.length - MAX_ITEMS;
+  const visibleItems = allItems.slice(0, MAX_ITEMS);
+  const hiddenCount  = allItems.length - MAX_ITEMS;
 
   return (
     <button
-      onClick={() => setRoute({ id: "w_order_details", orderId: order.id })}
+      onClick={() => setRoute({ id: "w_table_session", tableId: table.id })}
       style={{
         display: "flex", flexDirection: "column",
         background: "var(--bg-paper)",
@@ -151,7 +155,7 @@ function TableCard({ table, order, setRoute }: {
           <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6 }}>{table.location || "Зал"}</span>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div className="mono" style={{ fontSize: 11, color: "var(--ink-4)" }}>{fmtTime(order.created_at)}</div>
+          <div className="mono" style={{ fontSize: 11, color: "var(--ink-4)" }}>{fmtTime(orders[0].created_at)}</div>
           <div className="mono" style={{
             fontSize: 11, fontWeight: 600,
             color: mins > 30 ? "var(--pri-urgent)" : "var(--ink-3)",
@@ -191,8 +195,8 @@ function TableCard({ table, order, setRoute }: {
         borderTop: "1px dashed var(--line-1)",
         display: "flex", justifyContent: "space-between", alignItems: "center",
       }}>
-        <StatusBadge status={order.status} />
-        <span className="num" style={{ fontWeight: 700, fontSize: 14 }}>{fmtKZT(order.total_amount)}</span>
+        <StatusBadge status={status} />
+        <span className="num" style={{ fontWeight: 700, fontSize: 14 }}>{fmtKZT(totalAmount)}</span>
       </div>
     </button>
   );
@@ -204,13 +208,27 @@ export function WaiterOrders({ setRoute }: { setRoute: SetRoute }) {
   const { state, refreshOrders } = useApp();
   const [statusFilter, setStatusFilter] = useState("active");
 
-  const orders = state.orders.filter(o => {
+  const filtered = state.orders.filter(o => {
     if (statusFilter === "active") return !["paid", "cancelled"].includes(o.status);
     if (statusFilter === "ready")  return o.status === "ready";
     if (statusFilter === "served") return o.status === "served";
     if (statusFilter === "paid")   return o.status === "paid";
     return true;
   });
+
+  // Group by table for active orders; show individually for historical
+  const groupByTable = ["active", "ready", "served"].includes(statusFilter);
+
+  const rows: Order[][] = groupByTable
+    ? Object.values(
+        filtered.reduce((acc, o) => {
+          const key = String(o.table_id);
+          if (!acc[key]) acc[key] = [];
+          acc[key].push(o);
+          return acc;
+        }, {} as Record<string, Order[]>)
+      ).sort((a, b) => new Date(b[0].created_at).getTime() - new Date(a[0].created_at).getTime())
+    : filtered.map(o => [o]);
 
   return (
     <>
@@ -237,31 +255,41 @@ export function WaiterOrders({ setRoute }: { setRoute: SetRoute }) {
 
       <div className="page-body">
         <div className="card" style={{ overflow: "hidden" }}>
-          <div className="list-head" style={{ gridTemplateColumns: "70px 80px 1.2fr 90px 110px 120px 130px" }}>
-            <div>#</div><div>Стол</div><div>Позиции</div><div>Позиций</div><div>Создан</div><div>Сумма</div><div>Статус</div>
+          <div className="list-head" style={{ gridTemplateColumns: "80px 80px 1.2fr 90px 110px 120px 130px" }}>
+            <div>Стол</div><div>Заказов</div><div>Позиции</div><div>Позиций</div><div>Создан</div><div>Сумма</div><div>Статус</div>
           </div>
-          {orders.map(o => (
-            <div
-              key={o.id}
-              className="list-row"
-              style={{ gridTemplateColumns: "70px 80px 1.2fr 90px 110px 120px 130px", cursor: "pointer" }}
-              onClick={() => setRoute({ id: "w_order_details", orderId: o.id })}
-            >
-              <div className="mono" style={{ fontWeight: 600 }}>#{o.id}</div>
-              <div style={{ fontWeight: 600 }}>
-                {o.table ? o.table.number : `#${o.table_id}`}
+          {rows.map(tableOrders => {
+            const first = tableOrders[0];
+            const tableNum = first.table ? first.table.number : `#${first.table_id}`;
+            const allItems = tableOrders.flatMap(o => o.items);
+            const total = tableOrders.reduce((s, o) => s + parseFloat(o.total_amount), 0);
+            const status = groupByTable ? dominantStatus(tableOrders) : first.status;
+            const onClick = groupByTable
+              ? () => setRoute({ id: "w_table_session", tableId: first.table_id })
+              : () => setRoute({ id: "w_order_details", orderId: first.id });
+            return (
+              <div
+                key={`${first.table_id}-${first.id}`}
+                className="list-row"
+                style={{ gridTemplateColumns: "80px 80px 1.2fr 90px 110px 120px 130px", cursor: "pointer" }}
+                onClick={onClick}
+              >
+                <div style={{ fontWeight: 700 }}>{tableNum}</div>
+                <div style={{ color: "var(--ink-3)" }}>
+                  {tableOrders.length > 1 ? `${tableOrders.length} зак.` : `#${first.id}`}
+                </div>
+                <div style={{ fontSize: 12.5, color: "var(--ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {allItems.slice(0, 2).map(i => `${i.quantity}× ${i.menu_item?.name ?? `#${i.menu_item_id}`}`).join(" · ")}
+                  {allItems.length > 2 && <span style={{ color: "var(--ink-3)" }}> +{allItems.length - 2}</span>}
+                </div>
+                <div style={{ color: "var(--ink-3)" }}>{allItems.reduce((s, i) => s + i.quantity, 0)} шт.</div>
+                <div className="mono" style={{ fontSize: 12.5 }}>{fmtTime(first.created_at)}</div>
+                <div className="num" style={{ fontWeight: 600 }}>{fmtKZT(total)}</div>
+                <div><StatusBadge status={status} /></div>
               </div>
-              <div style={{ fontSize: 12.5, color: "var(--ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {o.items.slice(0, 2).map(i => `${i.quantity}× ${i.menu_item?.name ?? `#${i.menu_item_id}`}`).join(" · ")}
-                {o.items.length > 2 && <span style={{ color: "var(--ink-3)" }}> +{o.items.length - 2}</span>}
-              </div>
-              <div style={{ color: "var(--ink-3)" }}>{o.items.reduce((s, i) => s + i.quantity, 0)} шт.</div>
-              <div className="mono" style={{ fontSize: 12.5 }}>{fmtTime(o.created_at)}</div>
-              <div className="num" style={{ fontWeight: 600 }}>{fmtKZT(o.total_amount)}</div>
-              <div><StatusBadge status={o.status} /></div>
-            </div>
-          ))}
-          {!orders.length && (
+            );
+          })}
+          {!rows.length && (
             <div className="empty" style={{ padding: 40 }}>
               <div className="empty-ico"><Icon name="orders" size={26} /></div>
               <h4>Нет заказов</h4>
