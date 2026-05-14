@@ -30,6 +30,7 @@ const SLA = {
 } as Record<string, { warn: number; late: number }>;
 
 // ─── KDS Card ─────────────────────────────────────────────────────────────────
+// Fills 100% of its snap-page. Items grow to fill space; action button pinned bottom.
 
 function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, status: string) => void }) {
   useTick();
@@ -46,6 +47,9 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
 
   return (
     <div style={{
+      height: "100%",
+      display: "flex",
+      flexDirection: "column",
       background: "var(--bg-paper)",
       border: `1px solid ${cardBorder}`,
       borderLeft: `4px solid ${accentColor}`,
@@ -54,15 +58,16 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
       overflow: "hidden",
     }}>
 
-      {/* Header */}
+      {/* Header — pinned top */}
       <div style={{
-        padding: "10px 12px 8px",
+        flexShrink: 0,
+        padding: "14px 16px 12px",
         borderBottom: "1px solid var(--line-1)",
-        display: "flex", alignItems: "flex-start", gap: 8,
+        display: "flex", alignItems: "flex-start", gap: 10,
       }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 5, marginBottom: 3 }}>
-            <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>#{order.id}</span>
+          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6, marginBottom: 4 }}>
+            <span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>#{order.id}</span>
             {urgent && (
               <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 3, background: "var(--pri-urgent)", color: "#fff", letterSpacing: "0.05em" }}>
                 СРОЧНО
@@ -74,37 +79,43 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
               </span>
             )}
           </div>
-          <div style={{ fontSize: 11, color: "var(--ink-3)" }}>
+          <div style={{ fontSize: 12, color: "var(--ink-3)" }}>
             {order.table
               ? <><b style={{ color: "var(--ink-2)" }}>Стол {order.table.number}</b>{order.table.location ? ` · ${order.table.location}` : ""}</>
               : `Стол #${order.table_id}`}
           </div>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div className="mono" style={{ fontSize: 22, fontWeight: 700, color: timerColor, lineHeight: 1 }}>
+          <div className="mono" style={{ fontSize: 26, fontWeight: 700, color: timerColor, lineHeight: 1 }}>
             {fmtDuration(elapsed)}
           </div>
-          <div style={{ fontSize: 10, color: "var(--ink-4)", marginTop: 2 }}>{fmtTime(order.created_at)}</div>
+          <div style={{ fontSize: 10, color: "var(--ink-4)", marginTop: 3 }}>{fmtTime(order.created_at)}</div>
         </div>
       </div>
 
-      {/* Items */}
-      <div style={{ padding: "6px 12px" }}>
+      {/* Items — grows to fill available space, scrolls if many items */}
+      <div style={{
+        flex: 1,
+        minHeight: 0,
+        overflowY: "auto",
+        scrollbarWidth: "thin" as React.CSSProperties["scrollbarWidth"],
+        padding: "10px 16px",
+      }}>
         {order.items.map((it, i) => (
           <div key={it.id} style={{
-            padding: "5px 0",
+            padding: "7px 0",
             borderBottom: i < order.items.length - 1 ? "1px dashed var(--line-1)" : "none",
           }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-              <span className="mono" style={{ minWidth: 26, fontSize: 13, fontWeight: 700, color: "var(--brand)", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+              <span className="mono" style={{ minWidth: 28, fontSize: 14, fontWeight: 700, color: "var(--brand)", flexShrink: 0 }}>
                 ×{it.quantity}
               </span>
-              <span style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }}>
+              <span style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.3 }}>
                 {it.menu_item?.name ?? `#${it.menu_item_id}`}
               </span>
             </div>
             {it.note && (
-              <div style={{ marginLeft: 34, marginTop: 3, fontSize: 12, color: "var(--amber)", fontWeight: 500, display: "flex", gap: 4, alignItems: "center" }}>
+              <div style={{ marginLeft: 38, marginTop: 4, fontSize: 12, color: "var(--amber)", fontWeight: 500, display: "flex", gap: 5, alignItems: "center" }}>
                 <Icon name="note" size={11} /> {it.note}
               </div>
             )}
@@ -112,52 +123,50 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
         ))}
       </div>
 
-      {/* Customer note */}
+      {/* Customer note — pinned above button */}
       {order.customer_note && (
         <div style={{
-          padding: "7px 12px",
+          flexShrink: 0,
+          padding: "8px 16px",
           background: "var(--amber-soft)",
           borderTop: "1px solid var(--amber-line)",
-          fontSize: 12, color: "var(--amber)", display: "flex", gap: 5, alignItems: "flex-start",
+          fontSize: 12.5, color: "var(--amber)", display: "flex", gap: 6, alignItems: "flex-start",
         }}>
-          <Icon name="warning" size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+          <Icon name="warning" size={13} style={{ flexShrink: 0, marginTop: 1 }} />
           <span style={{ fontWeight: 500 }}>{order.customer_note}</span>
         </div>
       )}
 
-      {/* Action button — full-width, tall */}
-      {order.status === "pending" && (
-        <div style={{ padding: "8px 12px", borderTop: "1px solid var(--line-1)" }}>
+      {/* Action — pinned bottom, large touch target */}
+      <div style={{ flexShrink: 0, padding: "12px 16px", borderTop: "1px solid var(--line-1)" }}>
+        {order.status === "pending" && (
           <button
             className="btn primary"
-            style={{ width: "100%", minHeight: 48, fontSize: 14, fontWeight: 700, justifyContent: "center", gap: 8, borderRadius: "var(--r)" }}
+            style={{ width: "100%", minHeight: 54, fontSize: 15, fontWeight: 700, justifyContent: "center", gap: 8, borderRadius: "var(--r)" }}
             onClick={() => onAction(order.id, "in_progress")}
           >
-            <Icon name="play" size={17} /> Начать готовку
+            <Icon name="play" size={18} /> Начать готовку
           </button>
-        </div>
-      )}
-      {order.status === "in_progress" && (
-        <div style={{ padding: "8px 12px", borderTop: "1px solid var(--line-1)" }}>
+        )}
+        {order.status === "in_progress" && (
           <button
             className="btn success"
-            style={{ width: "100%", minHeight: 48, fontSize: 14, fontWeight: 700, justifyContent: "center", gap: 8, borderRadius: "var(--r)" }}
+            style={{ width: "100%", minHeight: 54, fontSize: 15, fontWeight: 700, justifyContent: "center", gap: 8, borderRadius: "var(--r)" }}
             onClick={() => onAction(order.id, "ready")}
           >
-            <Icon name="check" size={17} /> Готово — к выдаче
+            <Icon name="check" size={18} /> Готово — к выдаче
           </button>
-        </div>
-      )}
-      {order.status === "ready" && (
-        <div style={{
-          padding: "9px 12px", borderTop: "1px solid var(--line-1)",
-          background: "var(--st-ready-bg)",
-          display: "flex", alignItems: "center", gap: 7,
-          fontSize: 13, fontWeight: 600, color: "var(--st-ready-fg)",
-        }}>
-          <Icon name="check" size={14} /> Ожидает официанта
-        </div>
-      )}
+        )}
+        {order.status === "ready" && (
+          <div style={{
+            minHeight: 54, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            background: "var(--st-ready-bg)", borderRadius: "var(--r)",
+            fontSize: 14, fontWeight: 600, color: "var(--st-ready-fg)",
+          }}>
+            <Icon name="check" size={16} /> Ожидает официанта
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -235,6 +244,7 @@ export function KitchenDisplay() {
             minHeight: 0,
             overflow: "hidden",
           }}>
+
             {/* Column header */}
             <div style={{
               flexShrink: 0,
@@ -254,28 +264,33 @@ export function KitchenDisplay() {
               <span className="num" style={{ fontSize: 15, fontWeight: 700 }}>{col.orders.length}</span>
             </div>
 
-            {/* Column body — scrolls vertically */}
+            {/* Column body — snap-scroll: one card per screen */}
             <div style={{
               flex: 1,
               minHeight: 0,
-              overflowY: "auto",
+              overflowY: "scroll",
+              scrollSnapType: "y mandatory" as React.CSSProperties["scrollSnapType"],
               scrollbarWidth: "thin" as React.CSSProperties["scrollbarWidth"],
-              scrollbarGutter: "stable" as React.CSSProperties["scrollbarGutter"],
-              padding: 10,
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-              background: "var(--bg-paper)",
+              background: "var(--bg-canvas)",
               border: `1px solid ${col.fg}`,
               borderRadius: "0 0 var(--r) var(--r)",
             }}>
               {col.orders.length ? col.orders.map(o => (
-                <KDSCard key={o.id} order={o} onAction={handleAction} />
+                // Each snap page fills 100% of the scroll container
+                <div key={o.id} style={{
+                  height: "100%",
+                  padding: 10,
+                  boxSizing: "border-box" as React.CSSProperties["boxSizing"],
+                  scrollSnapAlign: "start" as React.CSSProperties["scrollSnapAlign"],
+                  scrollSnapStop: "always" as React.CSSProperties["scrollSnapStop"],
+                }}>
+                  <KDSCard order={o} onAction={handleAction} />
+                </div>
               )) : (
-                <div style={{ flex: 1, display: "grid", placeItems: "center", color: "var(--ink-4)", textAlign: "center", padding: 24 }}>
+                <div style={{ height: "100%", display: "grid", placeItems: "center", color: "var(--ink-4)", textAlign: "center" }}>
                   <div>
-                    <Icon name="check" size={28} style={{ opacity: 0.3 }} />
-                    <div style={{ marginTop: 8, fontSize: 13 }}>Нет заказов</div>
+                    <Icon name="check" size={30} style={{ opacity: 0.3 }} />
+                    <div style={{ marginTop: 10, fontSize: 13 }}>Нет заказов</div>
                   </div>
                 </div>
               )}
