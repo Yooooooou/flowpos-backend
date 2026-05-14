@@ -33,7 +33,6 @@ const SLA = {
 
 function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, status: string) => void }) {
   useTick();
-  const [expanded, setExpanded] = useState(true);
 
   const elapsed = elapsedSec(order.created_at);
   const sla = SLA[order.status] ?? SLA.in_progress;
@@ -51,24 +50,18 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
       border: `1px solid ${cardBorder}`,
       borderLeft: `4px solid ${accentColor}`,
       borderRadius: "var(--r)",
-      boxShadow: urgent || isLate ? "0 2px 12px rgba(220,50,50,0.12)" : "var(--sh-1)",
+      boxShadow: urgent || isLate ? "0 2px 10px rgba(220,50,50,0.12)" : "var(--sh-1)",
       overflow: "hidden",
     }}>
 
-      {/* Header — clickable to collapse/expand */}
-      <div
-        onClick={() => setExpanded(e => !e)}
-        style={{
-          padding: "12px 14px",
-          display: "flex", alignItems: "center", gap: 10,
-          cursor: "pointer",
-          userSelect: "none",
-          background: expanded ? "transparent" : "var(--bg-canvas)",
-        }}
-      >
-        {/* Left: order # + badges + table */}
+      {/* Header */}
+      <div style={{
+        padding: "10px 12px 8px",
+        borderBottom: "1px solid var(--line-1)",
+        display: "flex", alignItems: "flex-start", gap: 8,
+      }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 5, marginBottom: 2 }}>
+          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 5, marginBottom: 3 }}>
             <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>#{order.id}</span>
             {urgent && (
               <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 3, background: "var(--pri-urgent)", color: "#fff", letterSpacing: "0.05em" }}>
@@ -80,11 +73,6 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
                 Высокий
               </span>
             )}
-            {!expanded && (
-              <span style={{ fontSize: 11, color: "var(--ink-4)", fontWeight: 500 }}>
-                · {order.items.length} поз.
-              </span>
-            )}
           </div>
           <div style={{ fontSize: 11, color: "var(--ink-3)" }}>
             {order.table
@@ -92,101 +80,91 @@ function KDSCard({ order, onAction }: { order: Order; onAction: (id: number, sta
               : `Стол #${order.table_id}`}
           </div>
         </div>
-
-        {/* Right: timer + time + chevron */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          <div style={{ textAlign: "right" }}>
-            <div className="mono" style={{ fontSize: 22, fontWeight: 700, color: timerColor, lineHeight: 1 }}>
-              {fmtDuration(elapsed)}
-            </div>
-            <div style={{ fontSize: 10, color: "var(--ink-4)", marginTop: 1 }}>{fmtTime(order.created_at)}</div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div className="mono" style={{ fontSize: 22, fontWeight: 700, color: timerColor, lineHeight: 1 }}>
+            {fmtDuration(elapsed)}
           </div>
-          <Icon name={expanded ? "up" : "down"} size={16} style={{ color: "var(--ink-4)", flexShrink: 0 }} />
+          <div style={{ fontSize: 10, color: "var(--ink-4)", marginTop: 2 }}>{fmtTime(order.created_at)}</div>
         </div>
       </div>
 
-      {/* Expandable body */}
-      {expanded && (
-        <>
-          {/* Items */}
-          <div style={{ borderTop: "1px solid var(--line-1)", padding: "8px 14px" }}>
-            {order.items.map((it, i) => (
-              <div key={it.id} style={{
-                padding: "5px 0",
-                borderBottom: i < order.items.length - 1 ? "1px dashed var(--line-1)" : "none",
-              }}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-                  <span className="mono" style={{ minWidth: 26, fontSize: 13, fontWeight: 700, color: "var(--brand)", flexShrink: 0 }}>
-                    ×{it.quantity}
-                  </span>
-                  <span style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }}>
-                    {it.menu_item?.name ?? `#${it.menu_item_id}`}
-                  </span>
-                </div>
-                {it.note && (
-                  <div style={{ marginLeft: 36, marginTop: 3, fontSize: 12, color: "var(--amber)", fontWeight: 500, display: "flex", gap: 4, alignItems: "center" }}>
-                    <Icon name="note" size={11} /> {it.note}
-                  </div>
-                )}
+      {/* Items */}
+      <div style={{ padding: "6px 12px" }}>
+        {order.items.map((it, i) => (
+          <div key={it.id} style={{
+            padding: "5px 0",
+            borderBottom: i < order.items.length - 1 ? "1px dashed var(--line-1)" : "none",
+          }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span className="mono" style={{ minWidth: 26, fontSize: 13, fontWeight: 700, color: "var(--brand)", flexShrink: 0 }}>
+                ×{it.quantity}
+              </span>
+              <span style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }}>
+                {it.menu_item?.name ?? `#${it.menu_item_id}`}
+              </span>
+            </div>
+            {it.note && (
+              <div style={{ marginLeft: 34, marginTop: 3, fontSize: 12, color: "var(--amber)", fontWeight: 500, display: "flex", gap: 4, alignItems: "center" }}>
+                <Icon name="note" size={11} /> {it.note}
               </div>
-            ))}
+            )}
           </div>
+        ))}
+      </div>
 
-          {/* Customer note */}
-          {order.customer_note && (
-            <div style={{
-              padding: "8px 14px",
-              background: "var(--amber-soft)",
-              borderTop: "1px solid var(--amber-line)",
-              fontSize: 12.5, color: "var(--amber)", display: "flex", gap: 6, alignItems: "flex-start",
-            }}>
-              <Icon name="warning" size={13} style={{ flexShrink: 0, marginTop: 1 }} />
-              <span style={{ fontWeight: 500 }}>{order.customer_note}</span>
-            </div>
-          )}
+      {/* Customer note */}
+      {order.customer_note && (
+        <div style={{
+          padding: "7px 12px",
+          background: "var(--amber-soft)",
+          borderTop: "1px solid var(--amber-line)",
+          fontSize: 12, color: "var(--amber)", display: "flex", gap: 5, alignItems: "flex-start",
+        }}>
+          <Icon name="warning" size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span style={{ fontWeight: 500 }}>{order.customer_note}</span>
+        </div>
+      )}
 
-          {/* Action button — large & bright */}
-          {order.status === "pending" && (
-            <div style={{ padding: "10px 14px", borderTop: "1px solid var(--line-1)" }}>
-              <button
-                className="btn primary"
-                style={{ width: "100%", minHeight: 52, fontSize: 15, fontWeight: 700, borderRadius: "var(--r)", justifyContent: "center", gap: 8 }}
-                onClick={e => { e.stopPropagation(); onAction(order.id, "in_progress"); }}
-              >
-                <Icon name="play" size={18} /> Начать готовку
-              </button>
-            </div>
-          )}
-          {order.status === "in_progress" && (
-            <div style={{ padding: "10px 14px", borderTop: "1px solid var(--line-1)" }}>
-              <button
-                className="btn success"
-                style={{ width: "100%", minHeight: 52, fontSize: 15, fontWeight: 700, borderRadius: "var(--r)", justifyContent: "center", gap: 8 }}
-                onClick={e => { e.stopPropagation(); onAction(order.id, "ready"); }}
-              >
-                <Icon name="check" size={18} /> Готово — к выдаче
-              </button>
-            </div>
-          )}
-          {order.status === "ready" && (
-            <div style={{
-              padding: "10px 14px", borderTop: "1px solid var(--line-1)",
-              display: "flex", alignItems: "center", gap: 8,
-              fontSize: 13, fontWeight: 600, color: "var(--st-served-fg)",
-              background: "var(--st-ready-bg)",
-            }}>
-              <Icon name="check" size={15} /> Ожидает официанта
-            </div>
-          )}
-        </>
+      {/* Action button — full-width, tall */}
+      {order.status === "pending" && (
+        <div style={{ padding: "8px 12px", borderTop: "1px solid var(--line-1)" }}>
+          <button
+            className="btn primary"
+            style={{ width: "100%", minHeight: 48, fontSize: 14, fontWeight: 700, justifyContent: "center", gap: 8, borderRadius: "var(--r)" }}
+            onClick={() => onAction(order.id, "in_progress")}
+          >
+            <Icon name="play" size={17} /> Начать готовку
+          </button>
+        </div>
+      )}
+      {order.status === "in_progress" && (
+        <div style={{ padding: "8px 12px", borderTop: "1px solid var(--line-1)" }}>
+          <button
+            className="btn success"
+            style={{ width: "100%", minHeight: 48, fontSize: 14, fontWeight: 700, justifyContent: "center", gap: 8, borderRadius: "var(--r)" }}
+            onClick={() => onAction(order.id, "ready")}
+          >
+            <Icon name="check" size={17} /> Готово — к выдаче
+          </button>
+        </div>
+      )}
+      {order.status === "ready" && (
+        <div style={{
+          padding: "9px 12px", borderTop: "1px solid var(--line-1)",
+          background: "var(--st-ready-bg)",
+          display: "flex", alignItems: "center", gap: 7,
+          fontSize: 13, fontWeight: 600, color: "var(--st-ready-fg)",
+        }}>
+          <Icon name="check" size={14} /> Ожидает официанта
+        </div>
       )}
     </div>
   );
 }
 
-// ─── Tab config ───────────────────────────────────────────────────────────────
+// ─── Column config ────────────────────────────────────────────────────────────
 
-const KDS_TABS = [
+const KDS_COLUMNS = [
   { status: "pending",     label: "Ожидает",   fg: "var(--st-pending-fg)",  bg: "var(--st-pending-bg)" },
   { status: "in_progress", label: "Готовится", fg: "var(--st-progress-fg)", bg: "var(--st-progress-bg)" },
   { status: "ready",       label: "К выдаче",  fg: "var(--st-ready-fg)",    bg: "var(--st-ready-bg)" },
@@ -197,7 +175,6 @@ const KDS_TABS = [
 export function KitchenDisplay() {
   const { state, refreshKitchenBoard, changeStatus, toast } = useApp();
   const board = state.kitchenBoard;
-  const [activeTab, setActiveTab] = useState("in_progress");
 
   useEffect(() => {
     const id = setInterval(refreshKitchenBoard, 15000);
@@ -208,19 +185,17 @@ export function KitchenDisplay() {
     try {
       await changeStatus(orderId, status as Order["status"]);
       await refreshKitchenBoard();
-      // auto-switch to next tab if queue emptied
     } catch {
       toast("error", "Ошибка обновления статуса");
     }
   };
 
-  const tabs = KDS_TABS.map(t => ({
-    ...t,
-    orders: (board?.[t.status as keyof typeof board] as Order[] | undefined) ?? [],
+  const cols = KDS_COLUMNS.map(c => ({
+    ...c,
+    orders: (board?.[c.status as keyof typeof board] as Order[] | undefined) ?? [],
   }));
 
-  const activeTabData = tabs.find(t => t.status === activeTab) ?? tabs[1];
-  const urgentCount = tabs.flatMap(t => t.orders).filter(o => o.priority === "urgent").length;
+  const urgentCount = cols.flatMap(c => c.orders).filter(o => o.priority === "urgent").length;
   const readyToday = board?.metrics.find(m => m.key === "ready_today")?.value ?? 0;
 
   return (
@@ -234,122 +209,79 @@ export function KitchenDisplay() {
           </div>
         )}
         <div className="spacer" />
+        <span style={{ fontSize: 12, color: "var(--ink-3)" }}>
+          Готово сегодня: <b className="num" style={{ color: "var(--ink-1)" }}>{readyToday}</b>
+        </span>
         <div className="conn"><span className="dot" /> Live</div>
         <button className="btn sm" onClick={refreshKitchenBoard}>
           <Icon name="sort" /> Обновить
         </button>
       </header>
 
-      {/* Body: sidebar tabs + order list */}
+      {/* 3-column kanban */}
       <div style={{
-        display: "flex",
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr 1fr",
+        gap: 12,
+        padding: 12,
         height: "calc(100vh - 60px)",
-        background: "var(--bg-canvas)",
         overflow: "hidden",
+        background: "var(--bg-canvas)",
       }}>
-
-        {/* ── Left sidebar: status tabs ── */}
-        <div style={{
-          width: 190,
-          flexShrink: 0,
-          borderRight: "1px solid var(--line-1)",
-          background: "var(--bg-paper)",
-          display: "flex",
-          flexDirection: "column",
-          padding: "12px 10px",
-          gap: 4,
-        }}>
-          {tabs.map(tab => {
-            const active = activeTab === tab.status;
-            const hasUrgent = tab.orders.some(o => o.priority === "urgent");
-            return (
-              <button
-                key={tab.status}
-                onClick={() => setActiveTab(tab.status)}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "13px 14px",
-                  borderRadius: "var(--r)",
-                  border: active ? `1.5px solid ${tab.fg}` : "1.5px solid transparent",
-                  cursor: "pointer",
-                  background: active ? tab.bg : "transparent",
-                  color: active ? tab.fg : "var(--ink-2)",
-                  fontWeight: active ? 700 : 500,
-                  fontSize: 14,
-                  transition: "all 0.15s",
-                  textAlign: "left",
-                  width: "100%",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                  {hasUrgent && <Icon name="fire" size={13} style={{ color: "var(--pri-urgent)" }} />}
-                  <span>{tab.label}</span>
-                </div>
-                <span style={{
-                  minWidth: 24, height: 24, borderRadius: 12,
-                  background: active ? tab.fg : "var(--line-2)",
-                  color: active ? "#fff" : "var(--ink-3)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 12, fontWeight: 700,
-                }}>
-                  {tab.orders.length}
-                </span>
-              </button>
-            );
-          })}
-
-          <div style={{ flex: 1 }} />
-
-          <div style={{
-            padding: "10px 14px",
-            borderTop: "1px solid var(--line-1)",
-            fontSize: 12, color: "var(--ink-3)",
-            textAlign: "center",
+        {cols.map(col => (
+          <div key={col.status} style={{
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 0,
+            overflow: "hidden",
           }}>
-            Готово сегодня<br />
-            <b className="num" style={{ fontSize: 20, color: "var(--ink-1)" }}>{readyToday}</b>
-          </div>
-        </div>
-
-        {/* ── Right: scrollable card list ── */}
-        <div style={{
-          flex: 1,
-          minWidth: 0,
-          overflowY: "auto",
-          scrollbarWidth: "thin" as React.CSSProperties["scrollbarWidth"],
-          padding: "14px 16px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-        }}>
-          {/* Section header */}
-          <div style={{
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-            paddingBottom: 6,
-            borderBottom: `2px solid ${activeTabData.fg}`,
-          }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: activeTabData.fg }}>
-              {activeTabData.label}
-            </span>
-            <span style={{ fontSize: 13, color: "var(--ink-3)" }}>
-              {activeTabData.orders.length} заказов
-            </span>
-          </div>
-
-          {activeTabData.orders.length ? activeTabData.orders.map(o => (
-            <KDSCard key={o.id} order={o} onAction={handleAction} />
-          )) : (
+            {/* Column header */}
             <div style={{
-              flex: 1, display: "grid", placeItems: "center",
-              color: "var(--ink-4)", textAlign: "center", padding: 60,
+              flexShrink: 0,
+              padding: "10px 14px",
+              background: col.bg,
+              color: col.fg,
+              borderRadius: "var(--r) var(--r) 0 0",
+              border: `1px solid ${col.fg}`,
+              borderBottom: "none",
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              fontWeight: 600, fontSize: 14,
             }}>
-              <div>
-                <Icon name="check" size={32} style={{ opacity: 0.3 }} />
-                <div style={{ marginTop: 10, fontSize: 14 }}>Нет заказов</div>
-              </div>
+              <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 4, background: col.fg, flexShrink: 0 }} />
+                {col.label}
+              </span>
+              <span className="num" style={{ fontSize: 15, fontWeight: 700 }}>{col.orders.length}</span>
             </div>
-          )}
-        </div>
+
+            {/* Column body — scrolls vertically */}
+            <div style={{
+              flex: 1,
+              minHeight: 0,
+              overflowY: "auto",
+              scrollbarWidth: "thin" as React.CSSProperties["scrollbarWidth"],
+              scrollbarGutter: "stable" as React.CSSProperties["scrollbarGutter"],
+              padding: 10,
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              background: "var(--bg-paper)",
+              border: `1px solid ${col.fg}`,
+              borderRadius: "0 0 var(--r) var(--r)",
+            }}>
+              {col.orders.length ? col.orders.map(o => (
+                <KDSCard key={o.id} order={o} onAction={handleAction} />
+              )) : (
+                <div style={{ flex: 1, display: "grid", placeItems: "center", color: "var(--ink-4)", textAlign: "center", padding: 24 }}>
+                  <div>
+                    <Icon name="check" size={28} style={{ opacity: 0.3 }} />
+                    <div style={{ marginTop: 8, fontSize: 13 }}>Нет заказов</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
     </>
   );
