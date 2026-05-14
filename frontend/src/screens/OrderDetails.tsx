@@ -36,17 +36,21 @@ export function OrderDetails({ orderId, setRoute }: Props) {
   const { state, changeStatus, updateOrder, toast } = useApp();
   const order = state.orders.find(o => o.id === orderId);
 
-  const [draft, setDraft] = useState<CartItem[]>(() => initDraft(order));
-  const [isDirty, setIsDirty] = useState(false);
+  // baseline: items already sent to kitchen (read-only for waiter)
+  const [baseline, setBaseline] = useState<CartItem[]>(() => initDraft(order));
+  // additions: new items being added in this session only
+  const [additions, setAdditions] = useState<CartItem[]>([]);
+
   const [activeCat, setActiveCat] = useState<number | undefined>(state.categories[0]?.id);
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirmStatus, setConfirmStatus] = useState<OrderStatus | null>(null);
 
-  // Re-sync draft when order changes from WebSocket (only if user has no pending edits)
+  // Reset when navigating to a different order
   useEffect(() => {
-    if (!isDirty && order) setDraft(initDraft(order));
-  }, [order?.id, order?.items.length, isDirty]); // eslint-disable-line
+    setBaseline(initDraft(order));
+    setAdditions([]);
+  }, [orderId]); // eslint-disable-line
 
   if (!order) {
     return (
@@ -60,11 +64,12 @@ export function OrderDetails({ orderId, setRoute }: Props) {
     );
   }
 
-  const canEdit = ["pending", "in_progress"].includes(order.status);
+  const canAddItems = ["pending", "in_progress"].includes(order.status);
+  const hasAdditions = additions.length > 0;
   const nextActions = getNextActions(order.status);
 
   const addToOrder = (item: MenuItem) => {
-    setDraft(prev => {
+    setAdditions(prev => {
       const ex = prev.find(c => c.menu_item_id === item.id && !c.note);
       if (ex) return prev.map(c => c === ex ? { ...c, quantity: c.quantity + 1 } : c);
       return [...prev, {
@@ -75,30 +80,30 @@ export function OrderDetails({ orderId, setRoute }: Props) {
         note: "",
       }];
     });
-    setIsDirty(true);
   };
 
-  const setQty = (idx: number, q: number) => {
-    setDraft(prev =>
+  const setAdditionQty = (idx: number, q: number) => {
+    setAdditions(prev =>
       q <= 0
         ? prev.filter((_, i) => i !== idx)
         : prev.map((c, i) => i === idx ? { ...c, quantity: q } : c)
     );
-    setIsDirty(true);
   };
 
-  const save = async () => {
+  // Send only additions to kitchen; baseline is preserved as-is
+  const send = async () => {
     setSaving(true);
     try {
       await updateOrder(orderId, {
-        items: draft.map(c => ({
+        items: [...baseline, ...additions].map(c => ({
           menu_item_id: c.menu_item_id,
           quantity: c.quantity,
           note: c.note || undefined,
         })),
       });
-      setIsDirty(false);
-      toast("success", "Заказ обновлён");
+      setBaseline(prev => [...prev, ...additions]);
+      setAdditions([]);
+      toast("success", "Позиции отправлены на кухню");
     } catch (e: unknown) {
       toast("error", e instanceof Error ? e.message : "Ошибка");
     } finally {
@@ -116,7 +121,8 @@ export function OrderDetails({ orderId, setRoute }: Props) {
     }
   };
 
-  const subtotal = draft.reduce((s, c) => s + c.unit_price * c.quantity, 0);
+  const allItems = [...baseline, ...additions];
+  const subtotal = allItems.reduce((s, c) => s + c.unit_price * c.quantity, 0);
   const serviceFee = Math.round(subtotal * 0.10);
   const total = subtotal + serviceFee;
 
@@ -142,12 +148,12 @@ export function OrderDetails({ orderId, setRoute }: Props) {
         </div>
         <StatusBadge status={order.status} />
         <div style={{ flex: 1 }} />
-        {isDirty && (
-          <button className="btn primary" onClick={save} disabled={saving}>
-            {saving ? <><span className="spin" /> Сохранение...</> : <><Icon name="check" /> Сохранить</>}
+        {hasAdditions && (
+          <button className="btn primary" onClick={send} disabled={saving}>
+            {saving ? <><span className="spin" /> Отправка...</> : <><Icon name="forward" /> Отправить</>}
           </button>
         )}
-        {order.status === "served" && !isDirty && (
+        {order.status === "served" && !hasAdditions && (
           <button className="btn success" onClick={() => setRoute({ id: "w_payment", orderId })}>
             <Icon name="card" /> Оплатить
           </button>
@@ -183,33 +189,16 @@ export function OrderDetails({ orderId, setRoute }: Props) {
 
           {/* Items list */}
           <div style={{ flex: 1, overflowY: "auto" }}>
-            {draft.map((item, idx) => (
-              <div key={idx} style={{
+            {/* Baseline items — already sent to kitchen, read-only */}
+            {baseline.map((item, idx) => (
+              <div key={`b${idx}`} style={{
                 padding: "9px 14px",
                 borderBottom: "1px solid var(--line-1)",
                 display: "flex", alignItems: "center", gap: 10,
               }}>
-                {canEdit ? (
-                  <div style={{
-                    display: "flex", alignItems: "center",
-                    border: "1px solid var(--line-2)", borderRadius: 6,
-                    overflow: "hidden", flexShrink: 0,
-                  }}>
-                    <button
-                      style={{ width: 26, height: 26, background: "var(--bg-sunken)", border: 0, cursor: "pointer", fontSize: 16, color: "var(--red)", lineHeight: 1 }}
-                      onClick={() => setQty(idx, item.quantity - 1)}
-                    >−</button>
-                    <div style={{ width: 26, textAlign: "center", fontWeight: 700, fontSize: 13 }}>{item.quantity}</div>
-                    <button
-                      style={{ width: 26, height: 26, background: "var(--bg-sunken)", border: 0, cursor: "pointer", fontSize: 16, color: "var(--brand)", lineHeight: 1 }}
-                      onClick={() => setQty(idx, item.quantity + 1)}
-                    >+</button>
-                  </div>
-                ) : (
-                  <span style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-3)", minWidth: 28, textAlign: "center", flexShrink: 0 }}>
-                    ×{item.quantity}
-                  </span>
-                )}
+                <span style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-3)", minWidth: 28, textAlign: "center", flexShrink: 0 }}>
+                  ×{item.quantity}
+                </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 500, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {item.name}
@@ -225,7 +214,55 @@ export function OrderDetails({ orderId, setRoute }: Props) {
                 </div>
               </div>
             ))}
-            {draft.length === 0 && (
+
+            {/* Additions — new items not yet sent to kitchen */}
+            {additions.length > 0 && (
+              <>
+                <div style={{
+                  padding: "5px 14px",
+                  background: "var(--brand-soft, color-mix(in srgb, var(--brand) 10%, transparent))",
+                  borderBottom: "1px solid var(--line-1)",
+                  fontSize: 11, fontWeight: 700, color: "var(--brand)",
+                  textTransform: "uppercase", letterSpacing: "0.05em",
+                }}>
+                  Добавляется
+                </div>
+                {additions.map((item, idx) => (
+                  <div key={`a${idx}`} style={{
+                    padding: "9px 14px",
+                    borderBottom: "1px solid var(--line-1)",
+                    display: "flex", alignItems: "center", gap: 10,
+                    background: "color-mix(in srgb, var(--brand) 4%, transparent)",
+                  }}>
+                    <div style={{
+                      display: "flex", alignItems: "center",
+                      border: "1px solid var(--line-2)", borderRadius: 6,
+                      overflow: "hidden", flexShrink: 0,
+                    }}>
+                      <button
+                        style={{ width: 26, height: 26, background: "var(--bg-sunken)", border: 0, cursor: "pointer", fontSize: 16, color: "var(--red)", lineHeight: 1 }}
+                        onClick={() => setAdditionQty(idx, item.quantity - 1)}
+                      >−</button>
+                      <div style={{ width: 26, textAlign: "center", fontWeight: 700, fontSize: 13 }}>{item.quantity}</div>
+                      <button
+                        style={{ width: 26, height: 26, background: "var(--bg-sunken)", border: 0, cursor: "pointer", fontSize: 16, color: "var(--brand)", lineHeight: 1 }}
+                        onClick={() => setAdditionQty(idx, item.quantity + 1)}
+                      >+</button>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 500, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {item.name}
+                      </div>
+                    </div>
+                    <div style={{ fontWeight: 600, fontSize: 13, flexShrink: 0 }}>
+                      {fmtKZT(item.unit_price * item.quantity)}
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {baseline.length === 0 && additions.length === 0 && (
               <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--ink-4)" }}>
                 Нет позиций
               </div>
@@ -275,8 +312,8 @@ export function OrderDetails({ orderId, setRoute }: Props) {
           )}
         </div>
 
-        {/* ── Right: menu browser (editable) or info (read-only) ── */}
-        {canEdit ? (
+        {/* ── Right: menu browser (when items can be added) or info (read-only) ── */}
+        {canAddItems ? (
           <div style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
             {/* Search + categories */}
             <div style={{ flexShrink: 0, padding: "12px 16px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-paper)" }}>
@@ -360,7 +397,7 @@ export function OrderDetails({ orderId, setRoute }: Props) {
             </div>
           </div>
         ) : (
-          /* Info + history panel for non-editable orders */
+          /* Info + history panel for orders that can't be modified */
           <div style={{ overflow: "auto", padding: 20 }}>
             <div className="card" style={{ marginBottom: 16 }}>
               <div style={{ padding: 14 }}>
@@ -421,8 +458,8 @@ export function OrderDetails({ orderId, setRoute }: Props) {
 
 function getNextActions(status: string): Array<{ status: OrderStatus; label: string; kind?: string; icon?: string }> {
   switch (status) {
-    case "pending":     return [{ status: "cancelled", label: "Отменить заказ", kind: "danger", icon: "x" }];
-    case "in_progress": return [];
+    case "pending":     return []; // only manager can cancel
+    case "in_progress": return []; // only manager can cancel; kitchen handles progress
     case "ready":       return [{ status: "served", label: "Подан гостю", kind: "primary", icon: "tray" }];
     case "served":      return [];
     default:            return [];
