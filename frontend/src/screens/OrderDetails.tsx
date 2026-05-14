@@ -96,6 +96,7 @@ export function OrderDetails({ orderId, setRoute }: Props) {
     try {
       const newOrder = await createOrder({
         table_id: order!.table_id,
+        priority: "normal",
         items: additions.map(c => ({
           menu_item_id: c.menu_item_id,
           quantity: c.quantity,
