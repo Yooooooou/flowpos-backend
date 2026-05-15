@@ -180,20 +180,25 @@ export function TableSession({ tableId, setRoute }: SessionProps) {
                     padding: "9px 14px",
                     borderBottom: "1px solid var(--line-1)",
                     display: "flex", alignItems: "center", gap: 10,
-                    background: item.status === "served" ? "color-mix(in srgb, var(--olive) 4%, transparent)" : undefined,
+                    background: item.status === "served"
+                      ? "color-mix(in srgb, var(--olive) 4%, transparent)"
+                      : item.status === "ready"
+                      ? "color-mix(in srgb, var(--amber) 10%, transparent)"
+                      : undefined,
                   }}>
                     <button
-                      onClick={() => serveItem(order.id, item.id, item.status === "served" ? "pending" : "served")}
-                      title={item.status === "served" ? "Подано" : "Отметить как подано"}
+                      onClick={() => serveItem(order.id, item.id, item.status === "served" ? "ready" : "served")}
+                      title={item.status === "served" ? "Подано — снять отметку" : item.status === "ready" ? "Готово — отметить как подано" : "Отметить как подано"}
                       style={{
                         width: 22, height: 22, borderRadius: 4, flexShrink: 0,
                         background: item.status === "served" ? "var(--olive)" : "transparent",
-                        border: `1.5px solid ${item.status === "served" ? "var(--olive)" : "var(--line-2)"}`,
+                        border: `1.5px solid ${item.status === "served" ? "var(--olive)" : item.status === "ready" ? "var(--amber)" : "var(--line-2)"}`,
                         cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
                         transition: "all 120ms",
                       }}
                     >
                       {item.status === "served" && <Icon name="check" size={12} style={{ color: "#fff" }} />}
+                      {item.status === "ready" && <Icon name="tray" size={11} style={{ color: "var(--amber)" }} />}
                     </button>
                     <span style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-3)", minWidth: 28, textAlign: "center", flexShrink: 0 }}>
                       ×{item.quantity}
@@ -202,6 +207,11 @@ export function TableSession({ tableId, setRoute }: SessionProps) {
                       <div style={{ fontSize: 13.5, fontWeight: 500, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: item.status === "served" ? "var(--ink-3)" : undefined }}>
                         {item.menu_item?.name ?? `#${item.menu_item_id}`}
                       </div>
+                      {item.status === "ready" && (
+                        <div style={{ fontSize: 11, color: "var(--amber)", marginTop: 2, display: "flex", gap: 3, alignItems: "center" }}>
+                          <Icon name="tray" size={10} /> Готово к подаче
+                        </div>
+                      )}
                       {item.note && (
                         <div style={{ fontSize: 11, color: "var(--amber)", marginTop: 2, display: "flex", gap: 3, alignItems: "center" }}>
                           <Icon name="note" size={10} /> {item.note}
