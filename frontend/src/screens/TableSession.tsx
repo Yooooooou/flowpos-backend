@@ -377,6 +377,10 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
   const [received, setReceived] = useState("");
   const [confirm, setConfirm] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+
+  // The selected check to pay (auto-falls-back to first active order)
+  const selectedOrder = orders.find(o => o.id === selectedOrderId) ?? orders[0] ?? null;
 
   // ── Split state ──
   const [splitMode, setSplitMode] = useState(false);
@@ -428,6 +432,20 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
   const checkTotal = (ci: number) =>
     splitItems.reduce((s, item, ii) => s + checkQtys[ci]?.[ii] * parseFloat(item.unit_price), 0);
 
+  const handleInput = (ci: number, ii: number, rawVal: string) =>
+    setCheckQtys(prev => {
+      const itemTotal = splitItems[ii].quantity;
+      const primary = ci === 0 ? 1 : 0;
+      const fixedSum = prev.reduce((s, row, c) => (c !== ci && c !== primary) ? s + row[ii] : s, 0);
+      const newVal = Math.max(0, Math.min(itemTotal - fixedSum, parseInt(rawVal, 10) || 0));
+      const primaryVal = Math.max(0, itemTotal - fixedSum - newVal);
+      return prev.map((row, c) =>
+        c === ci ? row.map((q, i) => i === ii ? newVal : q)
+        : c === primary ? row.map((q, i) => i === ii ? primaryVal : q)
+        : row
+      );
+    });
+
   const confirmSplit = async () => {
     const splits = checkQtys
       .map(row => ({ items: splitItems.map((item, ii) => ({ order_item_id: item.id, quantity: row[ii] })).filter(si => si.quantity > 0) }))
@@ -444,7 +462,7 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
     }
   };
 
-  const total = orders.reduce((s, o) => s + parseFloat(o.total_amount), 0);
+  const total = selectedOrder ? parseFloat(selectedOrder.total_amount) : 0;
   const receivedAmt = parseFloat(received) || 0;
   const change = method === "cash" ? Math.max(0, receivedAmt - total) : 0;
 
@@ -503,7 +521,14 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
                       <td key={ci} style={cellStyle}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                           <button style={stepBtn} onClick={() => decr(ci, ii)}>−</button>
-                          <span style={{ minWidth: 20, textAlign: "center", fontWeight: 700 }}>{row[ii]}</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={splitItems[ii].quantity}
+                            value={row[ii]}
+                            onChange={e => handleInput(ci, ii, e.target.value)}
+                            style={{ width: 44, textAlign: "center", fontWeight: 700, border: "1px solid var(--line-2)", borderRadius: 4, padding: "2px 4px", fontSize: 13, background: "var(--bg-paper)", color: "inherit" }}
+                          />
                           <button style={stepBtn} onClick={() => incr(ci, ii)}>+</button>
                         </div>
                       </td>
@@ -534,17 +559,25 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
   }
 
   const pay = async () => {
+    if (!selectedOrder) return;
     setProcessing(true);
     try {
-      for (const order of orders) {
-        await createPayment({
-          order_id: order.id,
-          method,
-          amount_received: parseFloat(order.total_amount),
-        });
+      const amtReceived = method === "cash" && parseFloat(received) >= total
+        ? parseFloat(received)
+        : total;
+      await createPayment({
+        order_id: selectedOrder.id,
+        method,
+        amount_received: amtReceived,
+      });
+      setReceived("");
+      setSelectedOrderId(null);
+      if (orders.length <= 1) {
+        toast("success", `Стол ${table?.number ?? tableId} оплачен`);
+        setRoute({ id: "w_tables" });
+      } else {
+        toast("success", `Чек оплачен · осталось ${orders.length - 1}`);
       }
-      toast("success", `Стол ${table?.number ?? tableId} оплачен`);
-      setRoute({ id: "w_tables" });
     } catch (e: unknown) {
       toast("error", e instanceof Error ? e.message : "Ошибка оплаты");
     } finally {
@@ -568,7 +601,11 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
         </button>
         <div style={{ fontWeight: 600 }}>
           Оплата · Стол {table?.number ?? tableId}
-          {orders.length > 1 && <span style={{ marginLeft: 8, fontWeight: 400, color: "var(--ink-3)", fontSize: 13 }}>{orders.length} заказа</span>}
+          {orders.length > 1 && selectedOrder && (
+            <span style={{ marginLeft: 8, fontWeight: 400, color: "var(--ink-3)", fontSize: 13 }}>
+              Чек {orders.indexOf(selectedOrder) + 1} из {orders.length}
+            </span>
+          )}
         </div>
         <div style={{ flex: 1 }} />
       </header>
@@ -576,31 +613,62 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", height: "calc(100vh - 56px)", overflow: "hidden" }}>
         {/* Left: order breakdown */}
         <div style={{ overflow: "auto", padding: 24 }}>
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 600 }}>
-              Состав · Стол {table?.number ?? tableId}
-            </div>
-            {orders.map(order => (
-              <div key={order.id}>
-                {orders.length > 1 && (
-                  <div style={{ padding: "6px 18px", background: "var(--bg-canvas)", borderBottom: "1px solid var(--line-1)", fontSize: 11, color: "var(--ink-4)" }}>
-                    Заказ #{order.id} · {fmtTime(order.created_at)}
+          {orders.length > 1 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {orders.map((order, idx) => {
+                const isSelected = order.id === selectedOrder?.id;
+                return (
+                  <div
+                    key={order.id}
+                    onClick={() => setSelectedOrderId(order.id)}
+                    className="card"
+                    style={{
+                      cursor: "pointer",
+                      border: `2px solid ${isSelected ? "var(--brand)" : "var(--line-1)"}`,
+                      outline: isSelected ? "3px solid color-mix(in srgb, var(--brand) 20%, transparent)" : "none",
+                      transition: "all 120ms",
+                    }}
+                  >
+                    <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--line-1)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>Чек {idx + 1}</div>
+                      <StatusBadge status={order.status} />
+                    </div>
+                    {order.items.map(item => (
+                      <div key={item.id} style={{ padding: "7px 16px", borderBottom: "1px solid var(--line-1)", display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                        <span style={{ color: "var(--ink-2)" }}>{item.menu_item?.name ?? `#${item.menu_item_id}`} ×{item.quantity}</span>
+                        <span style={{ fontWeight: 500 }}>{fmtKZT(item.line_total)}</span>
+                      </div>
+                    ))}
+                    <div style={{ padding: "10px 16px", display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 15 }}>
+                      <span>Итого</span>
+                      <span className="num">{fmtKZT(order.total_amount)}</span>
+                    </div>
                   </div>
-                )}
-                {order.items.map(item => (
-                  <div key={item.id} style={{ padding: "9px 18px", borderBottom: "1px solid var(--line-1)", display: "flex", justifyContent: "space-between", fontSize: 14 }}>
-                    <span>{item.menu_item?.name ?? `#${item.menu_item_id}`} ×{item.quantity}</span>
-                    <span style={{ fontWeight: 500 }}>{fmtKZT(item.line_total)}</span>
-                  </div>
-                ))}
+                );
+              })}
+            </div>
+          ) : (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 600 }}>
+                Состав · Стол {table?.number ?? tableId}
               </div>
-            ))}
-            <div style={{ padding: "12px 18px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 18, paddingTop: 4 }}>
-                <span>Итого</span><span className="num">{fmtKZT(total)}</span>
+              {orders.map(order => (
+                <div key={order.id}>
+                  {order.items.map(item => (
+                    <div key={item.id} style={{ padding: "9px 18px", borderBottom: "1px solid var(--line-1)", display: "flex", justifyContent: "space-between", fontSize: 14 }}>
+                      <span>{item.menu_item?.name ?? `#${item.menu_item_id}`} ×{item.quantity}</span>
+                      <span style={{ fontWeight: 500 }}>{fmtKZT(item.line_total)}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              <div style={{ padding: "12px 18px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 18, paddingTop: 4 }}>
+                  <span>Итого</span><span className="num">{fmtKZT(total)}</span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Right: payment form */}
@@ -632,21 +700,20 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
             </div>
           )}
 
-          <button
-            className="btn ghost block"
-            style={{ marginTop: "auto" }}
-            onClick={enterSplit}
-          >
-            <Icon name="receipt" /> Разделить счёт
-          </button>
-          <button
-            className="btn success block lg"
-            style={{ marginTop: 8 }}
-            onClick={() => setConfirm(true)}
-            disabled={processing || (method === "cash" && receivedAmt < total && receivedAmt > 0)}
-          >
-            <Icon name="check" /> Принять оплату {fmtKZT(total)}
-          </button>
+          <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+            {orders.length === 1 && (
+              <button className="btn ghost block" onClick={enterSplit}>
+                <Icon name="receipt" /> Разделить счёт
+              </button>
+            )}
+            <button
+              className="btn success block lg"
+              onClick={() => setConfirm(true)}
+              disabled={processing || (method === "cash" && receivedAmt < total && receivedAmt > 0)}
+            >
+              <Icon name="check" /> Принять оплату {fmtKZT(total)}
+            </button>
+          </div>
         </aside>
       </div>
 
@@ -661,6 +728,7 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
           <div className="num" style={{ fontSize: 32, fontWeight: 700, textAlign: "center", marginBottom: 8 }}>{fmtKZT(total)}</div>
           <div style={{ textAlign: "center", color: "var(--ink-3)", fontSize: 14 }}>
             {METHODS_MAP[method]} · Стол {table?.number ?? tableId}
+            {orders.length > 1 && selectedOrder && ` · Чек ${orders.indexOf(selectedOrder) + 1} из ${orders.length}`}
           </div>
         </Modal>
       )}
