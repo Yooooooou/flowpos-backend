@@ -387,10 +387,11 @@ export function KitchenDisplay() {
 const PAGE_SIZE = 20;
 
 const SORT_OPTIONS = [
-  { value: "time_desc", label: "Новые сначала" },
-  { value: "time_asc",  label: "Старые сначала" },
-  { value: "table",     label: "По столу" },
-  { value: "status",    label: "По статусу" },
+  { value: "time_desc",  label: "Новые сначала" },
+  { value: "time_asc",   label: "Старые сначала" },
+  { value: "table_asc",  label: "По столу (А→Я)" },
+  { value: "table_desc", label: "По столу (Я→А)" },
+  { value: "status",     label: "По статусу" },
 ] as const;
 
 const STATUS_OPTIONS = [
@@ -439,9 +440,10 @@ export function KitchenHistory() {
 
   const sorted = [...filtered].sort((a, b) => {
     switch (sortBy) {
-      case "time_asc": return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-      case "table":    return (a.table?.number ?? String(a.table_id)).localeCompare(b.table?.number ?? String(b.table_id));
-      case "status":   return a.status.localeCompare(b.status);
+      case "time_asc":   return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      case "table_asc":  return (a.table?.number ?? String(a.table_id)).localeCompare(b.table?.number ?? String(b.table_id));
+      case "table_desc": return (b.table?.number ?? String(b.table_id)).localeCompare(a.table?.number ?? String(a.table_id));
+      case "status":     return a.status.localeCompare(b.status);
       default:         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     }
   });

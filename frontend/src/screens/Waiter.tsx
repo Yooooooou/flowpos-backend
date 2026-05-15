@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useApp } from "../lib/store";
 import type { Order, TableOverview } from "../types";
 import { dominantStatus } from "./TableSession";
@@ -204,34 +204,73 @@ function TableCard({ table, orders, setRoute }: {
 
 // ─── WaiterOrders ─────────────────────────────────────────────────────────────
 
+const WAITER_PAGE_SIZE = 20;
+
+const WAITER_SORT_OPTIONS = [
+  { value: "time_desc",  label: "Новые сначала" },
+  { value: "time_asc",   label: "Старые сначала" },
+  { value: "table_asc",  label: "По столу (А→Я)" },
+  { value: "table_desc", label: "По столу (Я→А)" },
+  { value: "status",     label: "По статусу" },
+] as const;
+
+type WaiterSortValue = typeof WAITER_SORT_OPTIONS[number]["value"];
+
+const WAITER_TABS = [
+  { key: "active",    label: "Активные" },
+  { key: "ready",     label: "Готовы" },
+  { key: "served",    label: "Поданы" },
+  { key: "paid",      label: "Оплачены" },
+  { key: "cancelled", label: "Отменёны" },
+  { key: "all",       label: "Все" },
+] as const;
+
 export function WaiterOrders({ setRoute }: { setRoute: SetRoute }) {
   const { state, refreshOrders } = useApp();
   const [statusFilter, setStatusFilter] = useState("active");
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<WaiterSortValue>("time_desc");
+  const [page, setPage] = useState(1);
 
-  const filtered = state.orders.filter(o => {
-    if (statusFilter === "active") return !["paid", "cancelled"].includes(o.status);
-    if (statusFilter === "ready")  return o.status === "ready";
-    if (statusFilter === "served") return o.status === "served";
-    if (statusFilter === "paid")   return o.status === "paid";
-    return true;
+  useEffect(() => { setPage(1); }, [search, statusFilter, sortBy]);
+
+  const base = state.orders.filter(o => {
+    switch (statusFilter) {
+      case "active":    return !["paid", "cancelled"].includes(o.status);
+      case "ready":     return o.status === "ready";
+      case "served":    return o.status === "served";
+      case "paid":      return o.status === "paid";
+      case "cancelled": return o.status === "cancelled";
+      default:          return true;
+    }
   });
 
-  // Group by table for active orders; show individually for historical
-  const groupByTable = ["active", "ready", "served"].includes(statusFilter);
+  const filtered = base.filter(o => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (
+      String(o.id).includes(q) ||
+      (o.table ? o.table.number.toLowerCase().includes(q) : false) ||
+      o.items.some(i => (i.menu_item?.name ?? "").toLowerCase().includes(q))
+    );
+  });
 
-  const rows: Order[][] = groupByTable
-    ? Object.values(
-        filtered.reduce((acc, o) => {
-          const key = String(o.table_id);
-          if (!acc[key]) acc[key] = [];
-          acc[key].push(o);
-          return acc;
-        }, {} as Record<string, Order[]>)
-      ).sort((a, b) => new Date(b[0].created_at).getTime() - new Date(a[0].created_at).getTime())
-    : filtered.map(o => [o]);
+  const sorted = [...filtered].sort((a, b) => {
+    switch (sortBy) {
+      case "time_asc":   return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      case "table_asc":  return (a.table?.number ?? String(a.table_id)).localeCompare(b.table?.number ?? String(b.table_id));
+      case "table_desc": return (b.table?.number ?? String(b.table_id)).localeCompare(a.table?.number ?? String(a.table_id));
+      case "status":     return a.status.localeCompare(b.status);
+      default:           return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    }
+  });
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / WAITER_PAGE_SIZE));
+  const paginated = sorted.slice((page - 1) * WAITER_PAGE_SIZE, page * WAITER_PAGE_SIZE);
+  const hasFilters = search !== "";
 
   return (
-    <>
+    <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
       <div className="page-head">
         <div>
           <h2>Мои заказы</h2>
@@ -239,65 +278,99 @@ export function WaiterOrders({ setRoute }: { setRoute: SetRoute }) {
         </div>
         <div className="actions">
           <div className="segmented">
-            {[
-              ["active",  "Активные"],
-              ["ready",   "Готовы"],
-              ["served",  "Поданы"],
-              ["paid",    "Оплачены"],
-              ["all",     "Все"],
-            ].map(([k, l]) => (
-              <div key={k} className={`seg ${statusFilter === k ? "active" : ""}`} onClick={() => setStatusFilter(k)}>{l}</div>
+            {WAITER_TABS.map(t => (
+              <div key={t.key} className={`seg ${statusFilter === t.key ? "active" : ""}`} onClick={() => setStatusFilter(t.key)}>
+                {t.label}
+              </div>
             ))}
           </div>
           <button className="btn sm" onClick={refreshOrders}><Icon name="sort" /></button>
         </div>
       </div>
 
+      {/* Filter bar */}
+      <div style={{ padding: "0 20px 14px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ position: "relative", flex: "1 1 200px", minWidth: 160 }}>
+          <input
+            className="input"
+            placeholder="Поиск по #, столу, блюду..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ paddingLeft: 34 }}
+          />
+          <Icon name="search" size={14} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: "var(--ink-4)", pointerEvents: "none" }} />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", fontSize: 18, lineHeight: 1, padding: "0 2px" }}
+            >×</button>
+          )}
+        </div>
+        <select className="input" value={sortBy} onChange={e => setSortBy(e.target.value as WaiterSortValue)} style={{ width: 190 }}>
+          {WAITER_SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <span style={{ fontSize: 12, color: "var(--ink-4)", whiteSpace: "nowrap" }}>
+          {filtered.length} {filtered.length === 1 ? "заказ" : "заказов"}
+        </span>
+      </div>
+
       <div className="page-body">
         <div className="card" style={{ overflow: "hidden" }}>
-          <div className="list-head" style={{ gridTemplateColumns: "80px 80px 1.2fr 90px 110px 120px 130px" }}>
-            <div>Стол</div><div>Заказов</div><div>Позиции</div><div>Позиций</div><div>Создан</div><div>Сумма</div><div>Статус</div>
+          <div className="list-head" style={{ gridTemplateColumns: "70px 80px 1fr 90px 110px 120px" }}>
+            <div>#</div><div>Стол</div><div>Позиции</div><div>Создан</div><div>Сумма</div><div>Статус</div>
           </div>
-          {rows.map(tableOrders => {
-            const first = tableOrders[0];
-            const tableNum = first.table ? first.table.number : `#${first.table_id}`;
-            const allItems = tableOrders.flatMap(o => o.items);
-            const total = tableOrders.reduce((s, o) => s + parseFloat(o.total_amount), 0);
-            const status = groupByTable ? dominantStatus(tableOrders) : first.status;
-            const onClick = groupByTable
-              ? () => setRoute({ id: "w_table_session", tableId: first.table_id })
-              : () => setRoute({ id: "w_order_details", orderId: first.id });
-            return (
-              <div
-                key={`${first.table_id}-${first.id}`}
-                className="list-row"
-                style={{ gridTemplateColumns: "80px 80px 1.2fr 90px 110px 120px 130px", cursor: "pointer" }}
-                onClick={onClick}
-              >
-                <div style={{ fontWeight: 700 }}>{tableNum}</div>
-                <div style={{ color: "var(--ink-3)" }}>
-                  {tableOrders.length > 1 ? `${tableOrders.length} зак.` : `#${first.id}`}
-                </div>
+          {paginated.map(o => (
+            <div
+              key={o.id}
+              className="list-row"
+              style={{
+                gridTemplateColumns: "70px 80px 1fr 90px 110px 120px",
+                cursor: !["paid", "cancelled"].includes(o.status) ? "pointer" : "default",
+                alignItems: "flex-start",
+              }}
+              onClick={() => {
+                if (!["paid", "cancelled"].includes(o.status)) {
+                  setRoute({ id: "w_table_session", tableId: o.table_id });
+                }
+              }}
+            >
+              <div className="mono" style={{ fontWeight: 600, paddingTop: 1 }}>#{o.id}</div>
+              <div style={{ paddingTop: 1 }}>{o.table ? `Стол ${o.table.number}` : `#${o.table_id}`}</div>
+              <div>
                 <div style={{ fontSize: 12.5, color: "var(--ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {allItems.slice(0, 2).map(i => `${i.quantity}× ${i.menu_item?.name ?? `#${i.menu_item_id}`}`).join(" · ")}
-                  {allItems.length > 2 && <span style={{ color: "var(--ink-3)" }}> +{allItems.length - 2}</span>}
+                  {o.items.slice(0, 3).map(i => `${i.quantity}× ${i.menu_item?.name ?? `#${i.menu_item_id}`}`).join(", ")}
+                  {o.items.length > 3 && <span style={{ color: "var(--ink-3)" }}> +{o.items.length - 3}</span>}
                 </div>
-                <div style={{ color: "var(--ink-3)" }}>{allItems.reduce((s, i) => s + i.quantity, 0)} шт.</div>
-                <div className="mono" style={{ fontSize: 12.5 }}>{fmtTime(first.created_at)}</div>
-                <div className="num" style={{ fontWeight: 600 }}>{fmtKZT(total)}</div>
-                <div><StatusBadge status={status} /></div>
+                {o.cancel_reason && (
+                  <div style={{ fontSize: 11, color: "var(--red, #e03)", marginTop: 3, display: "flex", gap: 4, alignItems: "center" }}>
+                    <Icon name="warning" size={10} /> {o.cancel_reason}
+                  </div>
+                )}
               </div>
-            );
-          })}
-          {!rows.length && (
+              <div className="mono" style={{ fontSize: 12.5, paddingTop: 1 }}>{fmtTime(o.created_at)}</div>
+              <div className="num" style={{ fontWeight: 600, paddingTop: 1 }}>{fmtKZT(o.total_amount)}</div>
+              <div style={{ paddingTop: 1 }}><StatusBadge status={o.status} /></div>
+            </div>
+          ))}
+          {!paginated.length && (
             <div className="empty" style={{ padding: 40 }}>
               <div className="empty-ico"><Icon name="orders" size={26} /></div>
-              <h4>Нет заказов</h4>
-              <p>Все заказы на этом фильтре закрыты.</p>
+              <h4>{hasFilters ? "Ничего не найдено" : "Нет заказов"}</h4>
+              <p>{hasFilters ? "Попробуйте изменить фильтры." : "Все заказы на этом фильтре закрыты."}</p>
             </div>
           )}
         </div>
+
+        {totalPages > 1 && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 16, fontSize: 13 }}>
+            <button className="btn sm" onClick={() => setPage(1)} disabled={page === 1}>«</button>
+            <button className="btn sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹ Назад</button>
+            <span style={{ color: "var(--ink-3)", padding: "0 8px" }}>Стр. <b>{page}</b> из <b>{totalPages}</b></span>
+            <button className="btn sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Вперёд ›</button>
+            <button className="btn sm" onClick={() => setPage(totalPages)} disabled={page === totalPages}>»</button>
+          </div>
+        )}
       </div>
-    </>
+    </div>
   );
 }
