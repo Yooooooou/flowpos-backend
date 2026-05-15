@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useApp } from "../lib/store";
-import type { MenuItem, Order } from "../types";
+import type { MenuItem, Order, Table } from "../types";
 import { Icon } from "../components/Icon";
 import { StatusBadge, fmtKZT, fmtTime, Modal } from "../components/UI";
 
@@ -14,6 +14,168 @@ interface CartItem {
 
 function elapsedMin(dateStr: string) {
   return Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
+}
+
+// ─── Receipt ──────────────────────────────────────────────────────────────────
+
+const RECEIPT_VENUE   = "Ресторан";
+const RECEIPT_SERVICE = 0.10; // 10% service charge shown on receipt
+
+function buildReceiptHtml(orders: Order[], table: Table | null | undefined, now: Date): string {
+  const items   = orders.flatMap(o => o.items);
+  const sub     = orders.reduce((s, o) => s + parseFloat(o.total_amount), 0);
+  const svc     = Math.round(sub * RECEIPT_SERVICE);
+  const grand   = sub + svc;
+  const fmt     = (n: number) => n.toLocaleString("ru-RU") + " ₸";
+  const dateStr = now.toLocaleDateString("ru-RU");
+  const timeStr = now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+
+  const rows = items.map(it => `
+    <tr>
+      <td>${it.menu_item?.name ?? `#${it.menu_item_id}`}${it.note ? `<br><small style="color:#666">${it.note}</small>` : ""}</td>
+      <td class="r">${it.quantity}</td>
+      <td class="r">${fmt(parseFloat(it.unit_price))}</td>
+      <td class="r">${fmt(parseFloat(it.line_total))}</td>
+    </tr>`).join("");
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>${RECEIPT_VENUE} — Чек #${orders.map(o => o.id).join(", ")}</title>
+<style>
+  @page { size: 80mm auto; margin: 6mm; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Courier New',monospace;font-size:11px;max-width:280px;margin:0 auto}
+  .c{text-align:center} .r{text-align:right}
+  .sep{width:100%;border:none;border-top:1px dashed #000;margin:5px 0}
+  .hd{font-size:15px;font-weight:bold;text-align:center;margin-bottom:2px}
+  table{width:100%;border-collapse:collapse}
+  .it th{border-top:1px dashed #000;border-bottom:1px dashed #000;padding:2px 0;font-size:10px}
+  .it td{padding:2px 0;vertical-align:top}
+  .it th.r,.it td.r{text-align:right}
+  .tot td{padding:1px 0} .tot td.r{text-align:right}
+  .grand td{font-weight:bold;font-size:13px;border-top:1px solid #000;padding-top:3px}
+  .ft{font-size:9px;text-align:center;margin-top:8px;color:#555;line-height:1.5}
+</style></head><body>
+<div class="hd">${RECEIPT_VENUE.toUpperCase()}</div>
+<hr class="sep">
+<table>
+  <tr><td>Чек #${orders.map(o => o.id).join(", ")}</td><td class="r">Стол ${table?.number ?? "—"}</td></tr>
+  <tr><td>${dateStr}</td><td class="r">${timeStr}</td></tr>
+  ${orders[0]?.waiter ? `<tr><td colspan="2">Официант: ${orders[0].waiter.full_name}</td></tr>` : ""}
+</table>
+<hr class="sep">
+<table class="it">
+  <thead><tr>
+    <th style="width:50%;text-align:left">Блюдо</th>
+    <th class="r" style="width:10%">Кол</th>
+    <th class="r" style="width:18%">Цена</th>
+    <th class="r" style="width:22%">Сумма</th>
+  </tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+<hr class="sep">
+<table class="tot">
+  <tr><td>Всего:</td><td class="r">${fmt(sub)}</td></tr>
+  <tr><td>Обслуживание (${RECEIPT_SERVICE * 100}%):</td><td class="r">${fmt(svc)}</td></tr>
+</table>
+<table class="tot"><tr class="grand"><td>Итого к оплате:</td><td class="r">${fmt(grand)}</td></tr></table>
+<hr class="sep">
+<div class="ft">Вознаграждение официанту приветствуется,<br>но всегда остаётся на Ваше усмотрение.</div>
+</body></html>`;
+}
+
+function ReceiptPreviewModal({ orders, table, onClose }: {
+  orders: Order[];
+  table: Table | null | undefined;
+  onClose: () => void;
+}) {
+  const now   = new Date();
+  const items = orders.flatMap(o => o.items);
+  const sub   = orders.reduce((s, o) => s + parseFloat(o.total_amount), 0);
+  const svc   = Math.round(sub * RECEIPT_SERVICE);
+  const grand = sub + svc;
+
+  const handlePrint = () => {
+    const win = window.open("", "_blank", "width=420,height=660,menubar=no,toolbar=no,scrollbars=yes");
+    if (!win) return;
+    win.document.write(buildReceiptHtml(orders, table, now));
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 300);
+  };
+
+  const sep: React.CSSProperties = { borderTop: "1px dashed #aaa", margin: "8px 0" };
+  const row: React.CSSProperties = { display: "flex", justifyContent: "space-between", fontSize: 12 };
+
+  return (
+    <Modal
+      title="Чек для гостя"
+      onClose={onClose}
+      width={360}
+      footer={<>
+        <button className="btn ghost" onClick={onClose}>Закрыть</button>
+        <button className="btn primary" onClick={handlePrint}><Icon name="receipt" /> Печать</button>
+      </>}
+    >
+      <div style={{ fontFamily: "'Courier New', monospace", lineHeight: 1.65, padding: "0 4px" }}>
+        <div style={{ textAlign: "center", fontWeight: 700, fontSize: 15, marginBottom: 2 }}>
+          {RECEIPT_VENUE.toUpperCase()}
+        </div>
+        <div style={sep} />
+
+        <div style={row}>
+          <span>Чек #{orders.map(o => o.id).join(", ")}</span>
+          <span>Стол {table?.number ?? "—"}</span>
+        </div>
+        <div style={row}>
+          <span>{now.toLocaleDateString("ru-RU")}</span>
+          <span>{now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</span>
+        </div>
+        {orders[0]?.waiter && (
+          <div style={{ fontSize: 12 }}>Официант: {orders[0].waiter.full_name}</div>
+        )}
+        <div style={sep} />
+
+        {/* Column headers */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 28px 72px 72px", gap: 4, fontSize: 10, fontWeight: 700, borderBottom: "1px dashed #aaa", paddingBottom: 4, marginBottom: 4 }}>
+          <span>Блюдо</span>
+          <span style={{ textAlign: "center" }}>Кол</span>
+          <span style={{ textAlign: "right" }}>Цена</span>
+          <span style={{ textAlign: "right" }}>Сумма</span>
+        </div>
+
+        {/* Items */}
+        {items.map(item => (
+          <div key={item.id} style={{ display: "grid", gridTemplateColumns: "1fr 28px 72px 72px", gap: 4, fontSize: 11, marginBottom: 3 }}>
+            <div>
+              {item.menu_item?.name ?? `#${item.menu_item_id}`}
+              {item.note && <div style={{ fontSize: 10, color: "#888" }}>{item.note}</div>}
+            </div>
+            <span style={{ textAlign: "center" }}>{item.quantity}</span>
+            <span style={{ textAlign: "right" }}>{fmtKZT(item.unit_price)}</span>
+            <span style={{ textAlign: "right" }}>{fmtKZT(item.line_total)}</span>
+          </div>
+        ))}
+        <div style={sep} />
+
+        {/* Totals */}
+        <div style={row}><span>Всего:</span><span className="num">{fmtKZT(sub)}</span></div>
+        <div style={{ ...row, color: "#666", fontSize: 11 }}>
+          <span>Обслуживание ({RECEIPT_SERVICE * 100}%):</span>
+          <span className="num">{fmtKZT(svc)}</span>
+        </div>
+        <div style={{ ...row, fontWeight: 700, fontSize: 14, borderTop: "1.5px solid #333", marginTop: 5, paddingTop: 5 }}>
+          <span>Итого к оплате:</span>
+          <span className="num">{fmtKZT(grand)}</span>
+        </div>
+        <div style={sep} />
+
+        <div style={{ fontSize: 10, textAlign: "center", color: "#888", lineHeight: 1.5 }}>
+          Вознаграждение официанту приветствуется,<br />
+          но всегда остаётся на Ваше усмотрение.
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 // Returns the most "urgent" status across a set of orders
@@ -483,6 +645,7 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
   const [confirmAll, setConfirmAll] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [showReceipt, setShowReceipt] = useState(false);
 
   // The selected check to pay (auto-falls-back to first active order)
   const selectedOrder = orders.find(o => o.id === selectedOrderId) ?? orders[0] ?? null;
@@ -830,6 +993,9 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
             <button className="btn ghost block" onClick={enterSplit}>
               <Icon name="receipt" /> Разделить счёт
             </button>
+            <button className="btn ghost block" onClick={() => setShowReceipt(true)}>
+              <Icon name="note" /> Чек для гостя
+            </button>
             <button
               className="btn success block lg"
               onClick={() => setConfirm(true)}
@@ -892,6 +1058,14 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
             ))}
           </div>
         </Modal>
+      )}
+
+      {showReceipt && (
+        <ReceiptPreviewModal
+          orders={orders}
+          table={table}
+          onClose={() => setShowReceipt(false)}
+        />
       )}
     </>
   );
