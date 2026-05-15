@@ -416,6 +416,9 @@ async def update_order_status(
         order.ready_at = now
     if payload.status == OrderStatus.served and order.served_at is None:
         order.served_at = now
+    if payload.status == OrderStatus.served:
+        for item in order.items:
+            item.status = "served"
     if payload.status == OrderStatus.paid:
         order.paid_at = now
         order.table.status = TableStatus.free
@@ -482,6 +485,24 @@ async def update_item_status(
                 from_status=OrderStatus.in_progress,
                 to_status=OrderStatus.ready,
                 message="All items ready",
+            ))
+
+    # Auto-advance order to "served" when all items are marked served by waiter
+    if payload.status == "served":
+        order = db.scalar(_order_stmt().where(Order.id == order_id))
+        if order and order.status not in (OrderStatus.served, OrderStatus.paid, OrderStatus.cancelled) and all(i.status == "served" for i in order.items):
+            old_status = order.status
+            order.status = OrderStatus.served
+            now = datetime.now(timezone.utc)
+            if order.served_at is None:
+                order.served_at = now
+            db.add(OrderEvent(
+                order=order,
+                actor_id=current_user.id,
+                event_type="order.status_changed",
+                from_status=old_status,
+                to_status=OrderStatus.served,
+                message="All items served",
             ))
 
     db.commit()
