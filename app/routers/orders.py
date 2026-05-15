@@ -455,14 +455,14 @@ async def cancel_order(
     )
 
 
-@router.patch("/{order_id}/items/{item_id}/status")
+@router.patch("/{order_id}/items/{item_id}/status", response_model=OrderRead)
 async def update_item_status(
     order_id: int,
     item_id: int,
     payload: OrderItemStatusUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> Order:
     item = db.get(OrderItem, item_id)
     if item is None or item.order_id != order_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
@@ -507,6 +507,7 @@ async def update_item_status(
 
     db.commit()
     order = db.scalar(_order_stmt().where(Order.id == order_id))
-    if order:
-        await _broadcast_order("order.updated", order)
-    return {"ok": True}
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    await _broadcast_order("order.updated", order)
+    return order

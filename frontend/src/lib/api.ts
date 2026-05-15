@@ -270,7 +270,7 @@ export const api = {
   },
 
   updateItemStatus(token: string, orderId: number, itemId: number, status: string) {
-    return request<{ ok: boolean }>(
+    return request<Order>(
       `/orders/${orderId}/items/${itemId}/status`,
       { method: "PATCH", body: JSON.stringify({ status }) },
       token

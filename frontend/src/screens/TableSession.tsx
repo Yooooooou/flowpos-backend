@@ -187,13 +187,15 @@ export function TableSession({ tableId, setRoute }: SessionProps) {
                       : undefined,
                   }}>
                     <button
-                      onClick={() => serveItem(order.id, item.id, item.status === "served" ? "ready" : "served")}
-                      title={item.status === "served" ? "Подано — снять отметку" : item.status === "ready" ? "Готово — отметить как подано" : "Отметить как подано"}
+                      onClick={item.status !== "served" ? () => serveItem(order.id, item.id, "served") : undefined}
+                      disabled={item.status === "served"}
+                      title={item.status === "served" ? "Подано" : item.status === "ready" ? "Готово — отметить как подано" : "Отметить как подано"}
                       style={{
                         width: 22, height: 22, borderRadius: 4, flexShrink: 0,
                         background: item.status === "served" ? "var(--olive)" : "transparent",
                         border: `1.5px solid ${item.status === "served" ? "var(--olive)" : item.status === "ready" ? "var(--amber)" : "var(--line-2)"}`,
-                        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                        cursor: item.status === "served" ? "default" : "pointer",
+                        display: "flex", alignItems: "center", justifyContent: "center",
                         transition: "all 120ms",
                       }}
                     >

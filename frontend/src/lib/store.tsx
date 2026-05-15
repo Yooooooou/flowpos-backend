@@ -66,6 +66,7 @@ type Action =
   | { type: "SET_ITEMS"; items: MenuItem[] }
   | { type: "SET_ORDERS"; orders: Order[] }
   | { type: "UPSERT_ORDER"; order: Order }
+  | { type: "PATCH_ORDER_ITEM"; orderId: number; itemId: number; status: string }
   | { type: "SET_PAYMENTS"; payments: Payment[] }
   | { type: "SET_SHIFTS"; shifts: Shift[] }
   | { type: "SET_CURRENT_SHIFT"; shift: Shift | null }
@@ -122,6 +123,15 @@ function reducer(state: AppState, action: Action): AppState {
           : [action.order, ...state.orders],
       };
     }
+    case "PATCH_ORDER_ITEM":
+      return {
+        ...state,
+        orders: state.orders.map((o) =>
+          o.id === action.orderId
+            ? { ...o, items: o.items.map((i) => i.id === action.itemId ? { ...i, status: action.status } : i) }
+            : o
+        ),
+      };
     case "SET_PAYMENTS":
       return { ...state, payments: action.payments };
     case "SET_SHIFTS":
@@ -255,7 +265,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!t) return;
         if (ev.type === "order.created" || ev.type === "order.updated" || ev.type === "order.status_changed" || ev.type === "order.paid") {
           api.order(t, ev.order_id).then((order) => dispatch({ type: "UPSERT_ORDER", order })).catch(() => {});
-          api.tableOverview(t).then((tables) => dispatch({ type: "SET_TABLES", tables })).catch(() => {});
+          // tableOverview only when table status may have changed (not on item-level updates)
+          if (ev.type !== "order.updated") {
+            api.tableOverview(t).then((tables) => dispatch({ type: "SET_TABLES", tables })).catch(() => {});
+          }
           const role = loadUser()?.role;
           if (role === "kitchen" || role === "manager") {
             api.kitchenBoard(t).then((board) => dispatch({ type: "SET_KITCHEN_BOARD", board })).catch(() => {});
@@ -420,8 +433,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const updateItemStatus = useCallback(async (orderId: number, itemId: number, status: string) => {
     if (!state.token) throw new Error("Not authenticated");
-    await api.updateItemStatus(state.token, orderId, itemId, status);
-    const order = await api.order(state.token, orderId);
+    // Optimistic update — UI responds immediately
+    dispatch({ type: "PATCH_ORDER_ITEM", orderId, itemId, status });
+    // Single round-trip: backend now returns the full updated order
+    const order = await api.updateItemStatus(state.token, orderId, itemId, status);
     dispatch({ type: "UPSERT_ORDER", order });
   }, [state.token]);
 
