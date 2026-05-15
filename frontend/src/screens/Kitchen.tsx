@@ -325,23 +325,71 @@ export function KitchenDisplay() {
 
 // ─── KitchenHistory ───────────────────────────────────────────────────────────
 
+const PAGE_SIZE = 20;
+
+const SORT_OPTIONS = [
+  { value: "time_desc", label: "Новые сначала" },
+  { value: "time_asc",  label: "Старые сначала" },
+  { value: "table",     label: "По столу" },
+  { value: "status",    label: "По статусу" },
+] as const;
+
+const STATUS_OPTIONS = [
+  { value: "all",         label: "Все статусы" },
+  { value: "pending",     label: "Ожидает" },
+  { value: "in_progress", label: "Готовится" },
+  { value: "ready",       label: "К выдаче" },
+  { value: "served",      label: "Подано" },
+  { value: "paid",        label: "Оплачен" },
+  { value: "cancelled",   label: "Отменён" },
+];
+
 export function KitchenHistory() {
   const { state } = useApp();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortBy, setSortBy] = useState<typeof SORT_OPTIONS[number]["value"]>("time_desc");
+  const [page, setPage] = useState(1);
 
   const load = useCallback(async () => {
     if (!state.token) return;
     setLoading(true);
     try {
-      const data = await api.orders(state.token, { include_completed: true, limit: 60 });
-      setOrders(data.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()));
+      const data = await api.orders(state.token, { include_completed: true, limit: 200 });
+      setOrders(data);
     } finally {
       setLoading(false);
     }
   }, [state.token]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [search, statusFilter, sortBy]);
+
+  const filtered = orders.filter(o => {
+    if (statusFilter !== "all" && o.status !== statusFilter) return false;
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (
+      String(o.id).includes(q) ||
+      (o.table ? o.table.number.toLowerCase().includes(q) : false) ||
+      o.items.some(i => (i.menu_item?.name ?? "").toLowerCase().includes(q))
+    );
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    switch (sortBy) {
+      case "time_asc": return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      case "table":    return (a.table?.number ?? String(a.table_id)).localeCompare(b.table?.number ?? String(b.table_id));
+      case "status":   return a.status.localeCompare(b.status);
+      default:         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    }
+  });
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const paginated = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const hasFilters = search !== "" || statusFilter !== "all";
 
   return (
     <>
@@ -356,12 +404,42 @@ export function KitchenHistory() {
           </button>
         </div>
       </div>
+
+      {/* Filter bar */}
+      <div style={{ padding: "0 20px 14px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ position: "relative", flex: "1 1 200px", minWidth: 160 }}>
+          <input
+            className="input"
+            placeholder="Поиск по #, столу, блюду..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ paddingLeft: 34 }}
+          />
+          <Icon name="search" size={14} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: "var(--ink-4)", pointerEvents: "none" }} />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", fontSize: 18, lineHeight: 1, padding: "0 2px" }}
+            >×</button>
+          )}
+        </div>
+        <select className="input" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ width: 150 }}>
+          {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <select className="input" value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)} style={{ width: 170 }}>
+          {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <span style={{ fontSize: 12, color: "var(--ink-4)", whiteSpace: "nowrap" }}>
+          {filtered.length} {filtered.length === 1 ? "заказ" : "заказов"}
+        </span>
+      </div>
+
       <div className="page-body">
         <div className="card" style={{ overflow: "hidden" }}>
           <div className="list-head" style={{ gridTemplateColumns: "70px 80px 1fr 120px 110px" }}>
             <div>#</div><div>Стол</div><div>Позиции</div><div>Статус</div><div>Готово в</div>
           </div>
-          {orders.map(o => (
+          {paginated.map(o => (
             <div key={o.id} className="list-row" style={{ gridTemplateColumns: "70px 80px 1fr 120px 110px" }}>
               <div className="mono" style={{ fontWeight: 600 }}>#{o.id}</div>
               <div>{o.table ? `Стол ${o.table.number}` : `#${o.table_id}`}</div>
@@ -374,14 +452,26 @@ export function KitchenHistory() {
               </div>
             </div>
           ))}
-          {!loading && !orders.length && (
+          {!loading && !paginated.length && (
             <div className="empty" style={{ padding: 40 }}>
               <div className="empty-ico"><Icon name="clock" size={26} /></div>
-              <h4>История пуста</h4>
-              <p>Заказы появятся здесь после приготовления.</p>
+              <h4>{hasFilters ? "Ничего не найдено" : "История пуста"}</h4>
+              <p>{hasFilters ? "Попробуйте изменить фильтры." : "Заказы появятся здесь после приготовления."}</p>
             </div>
           )}
         </div>
+
+        {totalPages > 1 && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 16, fontSize: 13 }}>
+            <button className="btn sm" onClick={() => setPage(1)} disabled={page === 1}>«</button>
+            <button className="btn sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹ Назад</button>
+            <span style={{ color: "var(--ink-3)", padding: "0 8px" }}>
+              Стр. <b>{page}</b> из <b>{totalPages}</b>
+            </span>
+            <button className="btn sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Вперёд ›</button>
+            <button className="btn sm" onClick={() => setPage(totalPages)} disabled={page === totalPages}>»</button>
+          </div>
+        )}
       </div>
     </>
   );
