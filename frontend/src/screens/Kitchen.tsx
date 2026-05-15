@@ -392,7 +392,7 @@ export function KitchenHistory() {
   const hasFilters = search !== "" || statusFilter !== "all";
 
   return (
-    <>
+    <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
       <div className="page-head">
         <div>
           <h2>История</h2>
@@ -473,6 +473,6 @@ export function KitchenHistory() {
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }
