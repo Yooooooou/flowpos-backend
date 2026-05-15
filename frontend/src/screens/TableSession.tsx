@@ -50,6 +50,7 @@ export function TableSession({ tableId, setRoute }: SessionProps) {
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirmServe, setConfirmServe] = useState(false);
+  const [priority, setPriority] = useState<"low" | "normal" | "high" | "urgent">("normal");
 
   const hasOrders = orders.length > 0;
   const hasAdditions = additions.length > 0;
@@ -80,7 +81,7 @@ export function TableSession({ tableId, setRoute }: SessionProps) {
     try {
       const newOrder = await createOrder({
         table_id: tableId,
-        priority: "normal",
+        priority,
         items: additions.map(c => ({
           menu_item_id: c.menu_item_id,
           quantity: c.quantity,
@@ -88,6 +89,7 @@ export function TableSession({ tableId, setRoute }: SessionProps) {
         })),
       });
       setAdditions([]);
+      setPriority("normal");
       toast("success", `Заказ #${newOrder.id} отправлен на кухню`);
     } catch (e: unknown) {
       toast("error", e instanceof Error ? e.message : "Ошибка");
@@ -305,10 +307,10 @@ export function TableSession({ tableId, setRoute }: SessionProps) {
                   <div key={idx} style={{
                     padding: "9px 14px",
                     borderBottom: "1px solid var(--line-1)",
-                    display: "flex", alignItems: "center", gap: 10,
+                    display: "flex", alignItems: "flex-start", gap: 10,
                     background: "color-mix(in srgb, var(--brand) 4%, transparent)",
                   }}>
-                    <div style={{ display: "flex", alignItems: "center", border: "1px solid var(--line-2)", borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", border: "1px solid var(--line-2)", borderRadius: 6, overflow: "hidden", flexShrink: 0, marginTop: 2 }}>
                       <button style={{ width: 26, height: 26, background: "var(--bg-sunken)", border: 0, cursor: "pointer", fontSize: 16, color: "var(--red)", lineHeight: 1 }}
                         onClick={() => setAdditionQty(idx, item.quantity - 1)}>−</button>
                       <div style={{ width: 26, textAlign: "center", fontWeight: 700, fontSize: 13 }}>{item.quantity}</div>
@@ -317,11 +319,50 @@ export function TableSession({ tableId, setRoute }: SessionProps) {
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13.5, fontWeight: 500, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>
+                      <input
+                        className="input"
+                        placeholder="Комментарий к позиции..."
+                        value={item.note}
+                        onChange={e => setAdditions(prev => prev.map((c, i) => i === idx ? { ...c, note: e.target.value } : c))}
+                        style={{ marginTop: 5, fontSize: 12, padding: "3px 8px", height: 26, width: "100%" }}
+                      />
                     </div>
-                    <div style={{ fontWeight: 600, fontSize: 13, flexShrink: 0 }}>{fmtKZT(item.unit_price * item.quantity)}</div>
+                    <div style={{ fontWeight: 600, fontSize: 13, flexShrink: 0, marginTop: 2 }}>{fmtKZT(item.unit_price * item.quantity)}</div>
                   </div>
                 ))}
               </>
+            )}
+
+            {/* Priority selector — only when there are unsent additions */}
+            {additions.length > 0 && (
+              <div style={{
+                padding: "10px 14px",
+                background: "color-mix(in srgb, var(--brand) 6%, var(--bg-canvas))",
+                borderBottom: "1px solid var(--line-1)",
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-3)", marginBottom: 7, textTransform: "uppercase", letterSpacing: "0.05em" }}>Приоритет заказа</div>
+                <div style={{ display: "flex", gap: 5 }}>
+                  {(["low", "normal", "high", "urgent"] as const).map(p => {
+                    const active = priority === p;
+                    const color = p === "low" ? "var(--ink-3)" : p === "normal" ? "var(--brand)" : p === "high" ? "var(--amber, #f59e0b)" : "var(--red, #e03)";
+                    const label = p === "low" ? "Низкий" : p === "normal" ? "Обычный" : p === "high" ? "Высокий" : "Срочно!";
+                    return (
+                      <button
+                        key={p}
+                        onClick={() => setPriority(p)}
+                        style={{
+                          flex: 1, height: 30, fontSize: 11, fontWeight: active ? 700 : 500,
+                          border: `1.5px solid ${active ? color : "var(--line-2)"}`,
+                          borderRadius: 5, cursor: "pointer",
+                          background: active ? `color-mix(in srgb, ${color} 14%, transparent)` : "var(--bg-paper)",
+                          color: active ? color : "var(--ink-3)",
+                          transition: "all 100ms",
+                        }}
+                      >{label}</button>
+                    );
+                  })}
+                </div>
+              </div>
             )}
 
             {!hasOrders && additions.length === 0 && (
