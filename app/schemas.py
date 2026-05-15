@@ -184,6 +184,20 @@ class OrderItemStatusUpdate(BaseModel):
     status: str  # "ready" | "served" | "pending"
 
 
+class SplitItem(BaseModel):
+    order_item_id: int
+    quantity: int = Field(gt=0)
+
+
+class SplitCheck(BaseModel):
+    items: list[SplitItem]
+
+
+class TableSplitRequest(BaseModel):
+    table_id: int
+    splits: list[SplitCheck] = Field(min_length=2)
+
+
 class OrderEventRead(BaseModel):
     id: int
     actor_id: int | None = None

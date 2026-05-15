@@ -28,6 +28,7 @@ from app.schemas import (
     OrderRead,
     OrderStatusUpdate,
     OrderSyncRequest,
+    TableSplitRequest,
     OrderSyncResult,
     OrderUpdate,
     TableOverview,
@@ -421,9 +422,16 @@ async def update_order_status(
             item.status = "served"
     if payload.status == OrderStatus.paid:
         order.paid_at = now
-        order.table.status = TableStatus.free
-    if payload.status == OrderStatus.cancelled:
-        order.table.status = TableStatus.free
+    if payload.status in (OrderStatus.paid, OrderStatus.cancelled):
+        others_active = db.scalar(
+            select(func.count(Order.id)).where(
+                Order.table_id == order.table_id,
+                Order.id != order.id,
+                Order.status.not_in([OrderStatus.paid, OrderStatus.cancelled]),
+            )
+        )
+        if not others_active:
+            order.table.status = TableStatus.free
 
     db.add(
         OrderEvent(
@@ -453,6 +461,85 @@ async def cancel_order(
         db,
         current_user,
     )
+
+
+@router.post("/split-table", response_model=list[OrderRead])
+async def split_table_orders(
+    payload: TableSplitRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[Order]:
+    if current_user.role not in {UserRole.waiter, UserRole.manager}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    active_orders = list(db.scalars(
+        _order_stmt().where(
+            Order.table_id == payload.table_id,
+            Order.status.not_in([OrderStatus.paid, OrderStatus.cancelled]),
+        )
+    ))
+    if not active_orders:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active orders for this table")
+
+    item_map: dict[int, OrderItem] = {i.id: i for o in active_orders for i in o.items}
+
+    qty_totals: dict[int, int] = {}
+    for split in payload.splits:
+        for si in split.items:
+            if si.order_item_id not in item_map:
+                raise HTTPException(status_code=400, detail=f"Item {si.order_item_id} not in active orders")
+            qty_totals[si.order_item_id] = qty_totals.get(si.order_item_id, 0) + si.quantity
+    for item_id, total in qty_totals.items():
+        if total != item_map[item_id].quantity:
+            raise HTTPException(status_code=400, detail=f"Quantities for item {item_id} must sum to {item_map[item_id].quantity}")
+
+    first = active_orders[0]
+    new_orders: list[Order] = []
+
+    for split_def in payload.splits:
+        if not split_def.items:
+            continue
+        new_order = Order(
+            table_id=payload.table_id,
+            waiter_id=first.waiter_id,
+            status=first.status,
+            priority=first.priority,
+            customer_note=first.customer_note,
+            ready_at=first.ready_at,
+            served_at=first.served_at,
+            total_amount=Decimal("0"),
+        )
+        db.add(new_order)
+        db.flush()
+        order_total = Decimal("0")
+        for si in split_def.items:
+            orig = item_map[si.order_item_id]
+            line_total = orig.unit_price * si.quantity
+            db.add(OrderItem(
+                order_id=new_order.id,
+                menu_item_id=orig.menu_item_id,
+                quantity=si.quantity,
+                unit_price=orig.unit_price,
+                line_total=line_total,
+                note=orig.note,
+                status=orig.status,
+            ))
+            order_total += line_total
+        new_order.total_amount = order_total
+        new_orders.append(new_order)
+
+    for order in active_orders:
+        order.status = OrderStatus.cancelled
+
+    db.commit()
+
+    result: list[Order] = []
+    for o in new_orders:
+        refreshed = db.scalar(_order_stmt().where(Order.id == o.id))
+        if refreshed:
+            await _broadcast_order("order.created", refreshed)
+            result.append(refreshed)
+    return result
 
 
 @router.patch("/{order_id}/items/{item_id}/status", response_model=OrderRead)

@@ -190,7 +190,15 @@ async def create_payment(
     )
     order.status = OrderStatus.paid
     order.paid_at = datetime.now(timezone.utc)
-    order.table.status = TableStatus.free
+    others_active = db.scalar(
+        select(func.count(Order.id)).where(
+            Order.table_id == order.table_id,
+            Order.id != order.id,
+            Order.status.not_in([OrderStatus.paid, OrderStatus.cancelled]),
+        )
+    )
+    if not others_active:
+        order.table.status = TableStatus.free
     db.add(payment)
     db.add(
         OrderEvent(

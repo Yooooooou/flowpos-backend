@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useApp } from "../lib/store";
 import type { MenuItem, Order } from "../types";
 import { Icon } from "../components/Icon";
@@ -366,7 +366,7 @@ interface TablePaymentProps {
 }
 
 export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
-  const { state, createPayment, toast } = useApp();
+  const { state, createPayment, splitTableOrders, toast } = useApp();
 
   const table = state.tables.find(t => t.id === tableId);
   const orders = state.orders
@@ -377,6 +377,72 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
   const [received, setReceived] = useState("");
   const [confirm, setConfirm] = useState(false);
   const [processing, setProcessing] = useState(false);
+
+  // ── Split state ──
+  const [splitMode, setSplitMode] = useState(false);
+  const [splitItems, setSplitItems] = useState<typeof orders[0]["items"]>([]);
+  const [checkQtys, setCheckQtys] = useState<number[][]>([]);
+
+  const enterSplit = () => {
+    const items = orders.flatMap(o => o.items);
+    setSplitItems(items);
+    setCheckQtys([items.map(i => i.quantity), items.map(() => 0)]);
+    setSplitMode(true);
+  };
+
+  const addCheck = () => setCheckQtys(prev => [...prev, splitItems.map(() => 0)]);
+
+  const removeCheck = (ci: number) =>
+    setCheckQtys(prev => {
+      if (prev.length <= 2) return prev;
+      const next = prev.filter((_, i) => i !== ci).map(r => [...r]);
+      prev[ci].forEach((qty, ii) => { next[0][ii] += qty; });
+      return next;
+    });
+
+  const incr = (ci: number, ii: number) =>
+    setCheckQtys(prev => {
+      let donor = ci === 0 ? 1 : 0;
+      for (let c = 0; c < prev.length; c++) {
+        if (c !== ci && prev[c][ii] > prev[donor][ii]) donor = c;
+      }
+      if (prev[donor][ii] === 0) return prev;
+      return prev.map((row, c) =>
+        c === ci ? row.map((q, i) => i === ii ? q + 1 : q)
+        : c === donor ? row.map((q, i) => i === ii ? q - 1 : q)
+        : row
+      );
+    });
+
+  const decr = (ci: number, ii: number) =>
+    setCheckQtys(prev => {
+      if (prev[ci][ii] === 0) return prev;
+      const rcvr = ci === 0 ? 1 : 0;
+      return prev.map((row, c) =>
+        c === ci ? row.map((q, i) => i === ii ? q - 1 : q)
+        : c === rcvr ? row.map((q, i) => i === ii ? q + 1 : q)
+        : row
+      );
+    });
+
+  const checkTotal = (ci: number) =>
+    splitItems.reduce((s, item, ii) => s + checkQtys[ci]?.[ii] * parseFloat(item.unit_price), 0);
+
+  const confirmSplit = async () => {
+    const splits = checkQtys
+      .map(row => ({ items: splitItems.map((item, ii) => ({ order_item_id: item.id, quantity: row[ii] })).filter(si => si.quantity > 0) }))
+      .filter(s => s.items.length > 0);
+    if (splits.length < 2) { toast("error", "Нужно хотя бы 2 чека с позициями"); return; }
+    try {
+      setProcessing(true);
+      await splitTableOrders(tableId, splits);
+      setSplitMode(false);
+    } catch (e) {
+      toast("error", e instanceof Error ? e.message : "Ошибка разделения");
+    } finally {
+      setProcessing(false);
+    }
+  };
 
   const total = orders.reduce((s, o) => s + parseFloat(o.total_amount), 0);
   const receivedAmt = parseFloat(received) || 0;
@@ -391,6 +457,79 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
           <Icon name="back" /> К столам
         </button>
       </div>
+    );
+  }
+
+  // ── Split mode UI ──────────────────────────────────────────────
+  if (splitMode && checkQtys.length > 0) {
+    const cellStyle: React.CSSProperties = { padding: "8px 12px", borderBottom: "1px solid var(--line-1)", textAlign: "center" as const };
+    const stepBtn: React.CSSProperties = { width: 26, height: 26, border: "1px solid var(--line-2)", borderRadius: 4, background: "var(--bg-sunken)", cursor: "pointer", fontSize: 16, lineHeight: 1, color: "inherit" };
+    return (
+      <>
+        <header className="topbar">
+          <button className="iconbtn borderless" onClick={() => setSplitMode(false)}><Icon name="back" /></button>
+          <div style={{ fontWeight: 600 }}>Разделить счёт · Стол {table?.number ?? tableId}</div>
+          <div style={{ flex: 1 }} />
+        </header>
+        <div style={{ flex: 1, overflow: "auto", height: "calc(100vh - 56px)", display: "flex", flexDirection: "column" }}>
+          <div style={{ flex: 1, overflow: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: "var(--bg-canvas)" }}>
+                  <th style={{ ...cellStyle, textAlign: "left", fontWeight: 600, minWidth: 160 }}>Позиция</th>
+                  {checkQtys.map((_, ci) => (
+                    <th key={ci} style={{ ...cellStyle, minWidth: 130 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                        <span style={{ fontWeight: 600 }}>Чек {ci + 1}</span>
+                        {checkQtys.length > 2 && (
+                          <button onClick={() => removeCheck(ci)} style={{ ...stepBtn, width: 20, height: 20, fontSize: 12, color: "var(--red)", borderColor: "var(--red)" }}>×</button>
+                        )}
+                      </div>
+                    </th>
+                  ))}
+                  <th style={{ ...cellStyle, minWidth: 110 }}>
+                    <button className="btn sm" onClick={addCheck} style={{ fontSize: 12 }}>+ Чек</button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {splitItems.map((item, ii) => (
+                  <tr key={item.id} style={{ background: ii % 2 === 0 ? "var(--bg-paper)" : "var(--bg-canvas)" }}>
+                    <td style={{ ...cellStyle, textAlign: "left" }}>
+                      <div style={{ fontWeight: 500 }}>{item.menu_item?.name ?? `#${item.menu_item_id}`} <span style={{ color: "var(--ink-3)" }}>×{item.quantity}</span></div>
+                      {item.note && <div style={{ fontSize: 11, color: "var(--amber)", marginTop: 2 }}>{item.note}</div>}
+                    </td>
+                    {checkQtys.map((row, ci) => (
+                      <td key={ci} style={cellStyle}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                          <button style={stepBtn} onClick={() => decr(ci, ii)}>−</button>
+                          <span style={{ minWidth: 20, textAlign: "center", fontWeight: 700 }}>{row[ii]}</span>
+                          <button style={stepBtn} onClick={() => incr(ci, ii)}>+</button>
+                        </div>
+                      </td>
+                    ))}
+                    <td style={cellStyle} />
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ background: "var(--bg-canvas)", fontWeight: 700 }}>
+                  <td style={{ ...cellStyle, textAlign: "left" }}>Итого</td>
+                  {checkQtys.map((_, ci) => (
+                    <td key={ci} style={{ ...cellStyle, fontSize: 15 }} className="num">{fmtKZT(checkTotal(ci))}</td>
+                  ))}
+                  <td style={cellStyle} />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <div style={{ flexShrink: 0, padding: "14px 20px", borderTop: "1px solid var(--line-1)", background: "var(--bg-paper)" }}>
+            <button className="btn block primary lg" style={{ justifyContent: "center", minHeight: 48 }} onClick={confirmSplit} disabled={processing}>
+              {processing ? <><span className="spin" /> Разделение...</> : <><Icon name="check" /> Подтвердить разделение</>}
+            </button>
+          </div>
+        </div>
+      </>
     );
   }
 
@@ -494,8 +633,15 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
           )}
 
           <button
-            className="btn success block lg"
+            className="btn ghost block"
             style={{ marginTop: "auto" }}
+            onClick={enterSplit}
+          >
+            <Icon name="receipt" /> Разделить счёт
+          </button>
+          <button
+            className="btn success block lg"
+            style={{ marginTop: 8 }}
             onClick={() => setConfirm(true)}
             disabled={processing || (method === "cash" && receivedAmt < total && receivedAmt > 0)}
           >

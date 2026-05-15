@@ -196,6 +196,7 @@ interface AppContext {
     tip_amount?: number;
   }) => Promise<Payment>;
   updateItemStatus: (orderId: number, itemId: number, status: string) => Promise<void>;
+  splitTableOrders: (tableId: number, splits: Array<{ items: Array<{ order_item_id: number; quantity: number }> }>) => Promise<void>;
   openShift: (cash: number) => Promise<Shift>;
   closeShift: (cash: number, note?: string) => Promise<Shift>;
 }
@@ -431,6 +432,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return payment;
   }, [state.token, state.payments]);
 
+  const splitTableOrders = useCallback(async (
+    tableId: number,
+    splits: Array<{ items: Array<{ order_item_id: number; quantity: number }> }>
+  ) => {
+    if (!state.token) throw new Error("Not authenticated");
+    const newOrders = await api.splitTable(state.token, tableId, splits);
+    // Mark old active orders for this table as cancelled locally, add new split orders
+    const updated = state.orders.map(o =>
+      o.table_id === tableId && !["paid", "cancelled"].includes(o.status)
+        ? { ...o, status: "cancelled" as const }
+        : o
+    );
+    dispatch({ type: "SET_ORDERS", orders: [...updated, ...newOrders] });
+    const tables = await api.tableOverview(state.token);
+    dispatch({ type: "SET_TABLES", tables });
+  }, [state.token, state.orders]);
+
   const updateItemStatus = useCallback(async (orderId: number, itemId: number, status: string) => {
     if (!state.token) throw new Error("Not authenticated");
     // Optimistic update — UI responds immediately
@@ -473,6 +491,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       updateOrder,
       changeStatus,
       updateItemStatus,
+      splitTableOrders,
       createPayment,
       openShift,
       closeShift,

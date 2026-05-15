@@ -269,6 +269,10 @@ export const api = {
     return request<{ shift_id: number; status: string; payments_total: string; refunds_total: string; net_total: string; payments_by_method: Array<{ method: string; count: number; total: string }>; orders_paid: number }>(`/pos/shifts/${shiftId}/report`, {}, token);
   },
 
+  splitTable(token: string, tableId: number, splits: Array<{ items: Array<{ order_item_id: number; quantity: number }> }>) {
+    return request<Order[]>("/orders/split-table", { method: "POST", body: JSON.stringify({ table_id: tableId, splits }) }, token);
+  },
+
   updateItemStatus(token: string, orderId: number, itemId: number, status: string) {
     return request<Order>(
       `/orders/${orderId}/items/${itemId}/status`,
