@@ -233,8 +233,8 @@ export function TableSession({ tableId, setRoute }: SessionProps) {
               </div>
             ))}
 
-            {/* Cancelled orders (explicitly cancelled with reason) */}
-            {cancelledOrders.length > 0 && (
+            {/* Cancelled orders — only shown when no active orders remain */}
+            {cancelledOrders.length > 0 && orders.length === 0 && (
               <>
                 <div style={{
                   padding: "5px 14px",
