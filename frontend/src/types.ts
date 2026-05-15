@@ -96,6 +96,7 @@ export interface Order {
   status: OrderStatus;
   priority: OrderPriority;
   customer_note: string | null;
+  cancel_reason: string | null;
   total_amount: string;
   created_at: string;
   updated_at: string;

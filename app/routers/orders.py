@@ -218,8 +218,10 @@ def list_orders(
         stmt = stmt.where(Order.waiter_id == current_user.id)
     elif current_user.role == UserRole.kitchen:
         if include_completed:
-            # History view: all orders kitchen has worked on (ready_at is set)
-            stmt = stmt.where(Order.ready_at.isnot(None))
+            # History view: orders kitchen touched (reached ready) OR explicitly cancelled
+            stmt = stmt.where(
+                (Order.ready_at.isnot(None)) | (Order.status == OrderStatus.cancelled)
+            )
         else:
             stmt = stmt.where(Order.status.in_([OrderStatus.pending, OrderStatus.in_progress, OrderStatus.ready]))
     if only_active:

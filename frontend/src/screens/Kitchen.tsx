@@ -3,7 +3,7 @@ import { useApp } from "../lib/store";
 import { api } from "../lib/api";
 import type { Order } from "../types";
 import { Icon } from "../components/Icon";
-import { StatusBadge, fmtTime } from "../components/UI";
+import { StatusBadge, fmtTime, Modal } from "../components/UI";
 
 function useTick() {
   const [, setTick] = useState(0);
@@ -32,10 +32,11 @@ const SLA = {
 // ─── KDS Card ─────────────────────────────────────────────────────────────────
 // Fills 100% of its snap-page. Items grow to fill space; action button pinned bottom.
 
-function KDSCard({ order, onAction, onItemAction }: {
+function KDSCard({ order, onAction, onItemAction, onCancelRequest }: {
   order: Order;
   onAction: (id: number, status: string) => void;
   onItemAction: (orderId: number, itemId: number, status: string) => void;
+  onCancelRequest: (id: number) => void;
 }) {
   useTick();
 
@@ -180,7 +181,7 @@ function KDSCard({ order, onAction, onItemAction }: {
           <button
             className="btn ghost"
             style={{ width: "100%", justifyContent: "center", gap: 6, fontSize: 13, color: "var(--red, #e03)" }}
-            onClick={() => onAction(order.id, "cancelled")}
+            onClick={() => onCancelRequest(order.id)}
           >
             <Icon name="close" size={14} /> Отменить заказ
           </button>
@@ -203,6 +204,8 @@ const KDS_COLUMNS = [
 export function KitchenDisplay() {
   const { state, refreshKitchenBoard, changeStatus, updateItemStatus, toast } = useApp();
   const board = state.kitchenBoard;
+  const [cancelPending, setCancelPending] = useState<{ orderId: number; reason: string } | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     const id = setInterval(refreshKitchenBoard, 15000);
@@ -223,6 +226,25 @@ export function KitchenDisplay() {
       await updateItemStatus(orderId, itemId, status);
     } catch {
       toast("error", "Ошибка обновления позиции");
+    }
+  };
+
+  const handleCancelRequest = (orderId: number) => {
+    setCancelPending({ orderId, reason: "" });
+  };
+
+  const confirmCancel = async () => {
+    if (!cancelPending || !cancelPending.reason.trim()) return;
+    setCancelling(true);
+    try {
+      await changeStatus(cancelPending.orderId, "cancelled" as Order["status"], cancelPending.reason.trim());
+      await refreshKitchenBoard();
+      toast("info", `Заказ #${cancelPending.orderId} отменён`);
+      setCancelPending(null);
+    } catch {
+      toast("error", "Ошибка отмены заказа");
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -253,6 +275,43 @@ export function KitchenDisplay() {
           <Icon name="sort" /> Обновить
         </button>
       </header>
+
+      {cancelPending && (
+        <Modal
+          title={`Отмена заказа #${cancelPending.orderId}`}
+          onClose={() => !cancelling && setCancelPending(null)}
+          footer={<>
+            <button className="btn ghost" onClick={() => setCancelPending(null)} disabled={cancelling}>Назад</button>
+            <button
+              className="btn"
+              style={{ background: "var(--red, #e03)", color: "#fff", opacity: cancelPending.reason.trim() ? 1 : 0.5 }}
+              onClick={confirmCancel}
+              disabled={!cancelPending.reason.trim() || cancelling}
+            >
+              {cancelling ? <><span className="spin" /> Отмена...</> : <><Icon name="close" size={14} /> Подтвердить отмену</>}
+            </button>
+          </>}
+          width={420}
+        >
+          <p style={{ margin: "0 0 12px", color: "var(--ink-2)", fontSize: 14 }}>
+            Укажите причину — официант и менеджер увидят её в заказе.
+          </p>
+          <textarea
+            className="input"
+            rows={3}
+            placeholder='Напр. "Гость ушёл", "Нет ингредиентов", "Ошибка заказа"...'
+            value={cancelPending.reason}
+            onChange={e => setCancelPending(prev => prev ? { ...prev, reason: e.target.value } : null)}
+            autoFocus
+            style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }}
+          />
+          {!cancelPending.reason.trim() && (
+            <div style={{ marginTop: 8, fontSize: 12, color: "var(--red, #e03)" }}>
+              Причина обязательна
+            </div>
+          )}
+        </Modal>
+      )}
 
       {/* 3-column kanban */}
       <div style={{
@@ -306,7 +365,7 @@ export function KitchenDisplay() {
               borderRadius: "0 0 var(--r) var(--r)",
             }}>
               {col.orders.length ? col.orders.map(o => (
-                <KDSCard key={o.id} order={o} onAction={handleAction} onItemAction={handleItemAction} />
+                <KDSCard key={o.id} order={o} onAction={handleAction} onItemAction={handleItemAction} onCancelRequest={handleCancelRequest} />
               )) : (
                 <div style={{ flex: 1, display: "grid", placeItems: "center", color: "var(--ink-4)", textAlign: "center" }}>
                   <div>

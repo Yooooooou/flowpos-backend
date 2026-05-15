@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models import DiscountType, OrderPriority, OrderStatus, PaymentMethod, PeripheralType, PrintJobStatus, ShiftStatus, TableStatus, UserRole
 
@@ -219,6 +219,7 @@ class OrderRead(BaseModel):
     status: OrderStatus
     priority: OrderPriority
     customer_note: str | None = None
+    cancel_reason: str | None = None
     total_amount: Decimal
     created_at: datetime
     updated_at: datetime
@@ -231,6 +232,15 @@ class OrderRead(BaseModel):
     events: list[OrderEventRead] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="after")
+    def _compute_cancel_reason(self) -> "OrderRead":
+        if self.status == OrderStatus.cancelled:
+            for event in reversed(self.events):
+                if event.to_status == OrderStatus.cancelled and event.message:
+                    self.cancel_reason = event.message
+                    break
+        return self
 
 
 class OrderSyncResult(BaseModel):

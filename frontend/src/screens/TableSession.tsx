@@ -40,6 +40,11 @@ export function TableSession({ tableId, setRoute }: SessionProps) {
     .filter(o => o.table_id === tableId && !["paid", "cancelled"].includes(o.status))
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
+  // Cancelled orders with a reason = explicitly cancelled by kitchen (not split artifacts)
+  const cancelledOrders = state.orders.filter(o =>
+    o.table_id === tableId && o.status === "cancelled" && !!o.cancel_reason
+  );
+
   const [additions, setAdditions] = useState<CartItem[]>([]);
   const [activeCat, setActiveCat] = useState<number | undefined>(state.categories[0]?.id);
   const [search, setSearch] = useState("");
@@ -225,6 +230,64 @@ export function TableSession({ tableId, setRoute }: SessionProps) {
                 ))}
               </div>
             ))}
+
+            {/* Cancelled orders (explicitly cancelled with reason) */}
+            {cancelledOrders.length > 0 && (
+              <>
+                <div style={{
+                  padding: "5px 14px",
+                  background: "color-mix(in srgb, var(--red, #e03) 8%, var(--bg-canvas))",
+                  borderBottom: "1px solid var(--line-1)",
+                  fontSize: 11, fontWeight: 700, color: "var(--red, #e03)",
+                  textTransform: "uppercase", letterSpacing: "0.05em",
+                }}>
+                  Отменено
+                </div>
+                {cancelledOrders.map(order => (
+                  <div key={order.id}>
+                    <div style={{
+                      padding: "5px 14px",
+                      background: "var(--bg-canvas)",
+                      borderBottom: "1px solid var(--line-1)",
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      fontSize: 11, color: "var(--ink-4)",
+                    }}>
+                      <span>#{order.id} · {fmtTime(order.created_at)}</span>
+                      <StatusBadge status={order.status} />
+                    </div>
+                    {order.cancel_reason && (
+                      <div style={{
+                        padding: "6px 14px",
+                        background: "color-mix(in srgb, var(--red, #e03) 5%, transparent)",
+                        borderBottom: "1px solid var(--line-1)",
+                        fontSize: 12, color: "var(--red, #e03)",
+                        display: "flex", gap: 5, alignItems: "center",
+                      }}>
+                        <Icon name="warning" size={11} /> {order.cancel_reason}
+                      </div>
+                    )}
+                    {order.items.map(item => (
+                      <div key={item.id} style={{
+                        padding: "7px 14px",
+                        borderBottom: "1px solid var(--line-1)",
+                        display: "flex", alignItems: "center", gap: 10,
+                        opacity: 0.45,
+                      }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-4)", minWidth: 28, textAlign: "center", flexShrink: 0 }}>
+                          ×{item.quantity}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500, lineHeight: 1.3, textDecoration: "line-through", color: "var(--ink-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {item.menu_item?.name ?? `#${item.menu_item_id}`}
+                          </div>
+                        </div>
+                        <div style={{ fontWeight: 500, fontSize: 13, flexShrink: 0, color: "var(--ink-4)" }}>{fmtKZT(item.line_total)}</div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </>
+            )}
 
             {/* Additions — new items not yet sent */}
             {additions.length > 0 && (
