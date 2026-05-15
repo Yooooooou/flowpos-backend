@@ -3,7 +3,7 @@ import { useApp } from "../lib/store";
 import type { Order, TableOverview } from "../types";
 import { dominantStatus } from "./TableSession";
 import { Icon } from "../components/Icon";
-import { StatusBadge, fmtKZT, fmtTime, TABLE_STATUS_LABEL } from "../components/UI";
+import { StatusBadge, fmtKZT, fmtTime, TABLE_STATUS_LABEL, Modal } from "../components/UI";
 
 // ─── WaiterTables ─────────────────────────────────────────────────────────────
 
@@ -202,6 +202,149 @@ function TableCard({ table, orders, setRoute }: {
   );
 }
 
+// ─── OrderDetailModal ─────────────────────────────────────────────────────────
+
+const STATUS_RU: Record<string, string> = {
+  pending: "Ожидание", in_progress: "Готовится", ready: "Готово",
+  served: "Подано", paid: "Оплачено", cancelled: "Отменено",
+};
+const PRIORITY_RU: Record<string, string> = { low: "Низкий", normal: "Обычный", high: "Высокий", urgent: "Срочно!" };
+const PRIORITY_COLOR: Record<string, string> = {
+  low: "var(--ink-3)", normal: "var(--brand)",
+  high: "var(--amber, #f59e0b)", urgent: "var(--red, #e03)",
+};
+
+function fmtDur(ms: number) {
+  const m = Math.floor(ms / 60000);
+  return m < 60 ? `${m} мин` : `${Math.floor(m / 60)}ч ${m % 60}м`;
+}
+
+export function OrderDetailModal({ order, onClose, setRoute }: {
+  order: Order;
+  onClose: () => void;
+  setRoute?: SetRoute;
+}) {
+  const isActive = !["paid", "cancelled"].includes(order.status);
+  const prepMs  = order.ready_at  ? new Date(order.ready_at).getTime()  - new Date(order.created_at).getTime() : null;
+  const waitMs  = order.served_at && order.ready_at
+    ? new Date(order.served_at).getTime()  - new Date(order.ready_at).getTime() : null;
+  const totalMs = order.paid_at   ? new Date(order.paid_at).getTime()   - new Date(order.created_at).getTime() : null;
+
+  const priColor = PRIORITY_COLOR[order.priority] ?? "var(--brand)";
+
+  const timings = [
+    { label: "Создан",   val: fmtTime(order.created_at),              sub: `${elapsedMin(order.created_at)} мин назад` },
+    prepMs  != null ? { label: "Готово",   val: order.ready_at  ? fmtTime(order.ready_at)  : "—", sub: `приготовление ${fmtDur(prepMs)}`  } : null,
+    waitMs  != null ? { label: "Подано",   val: order.served_at ? fmtTime(order.served_at) : "—", sub: `ожидание подачи ${fmtDur(waitMs)}` } : null,
+    totalMs != null ? { label: "Оплачено", val: order.paid_at   ? fmtTime(order.paid_at)   : "—", sub: `общее время ${fmtDur(totalMs)}`   } : null,
+  ].filter(Boolean) as { label: string; val: string; sub: string }[];
+
+  return (
+    <Modal
+      title={`Заказ #${order.id}`}
+      onClose={onClose}
+      width={580}
+      footer={
+        <>
+          <button className="btn ghost" onClick={onClose}>Закрыть</button>
+          {isActive && setRoute && (
+            <button className="btn primary" onClick={() => { onClose(); setRoute({ id: "w_table_session", tableId: order.table_id }); }}>
+              <Icon name="forward" /> Открыть стол
+            </button>
+          )}
+        </>
+      }
+    >
+      {/* Meta */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
+        <span style={{ fontWeight: 700, fontSize: 14 }}>
+          {order.table ? `Стол ${order.table.number}` : `Стол #${order.table_id}`}
+        </span>
+        <StatusBadge status={order.status} />
+        <span style={{
+          fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
+          background: `color-mix(in srgb, ${priColor} 14%, transparent)`,
+          color: priColor, border: `1px solid color-mix(in srgb, ${priColor} 40%, transparent)`,
+        }}>
+          {PRIORITY_RU[order.priority] ?? order.priority}
+        </span>
+        {order.waiter && <span style={{ fontSize: 12, color: "var(--ink-3)" }}>· {order.waiter.full_name}</span>}
+      </div>
+
+      {/* Timings */}
+      {timings.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(timings.length, 2)}, 1fr)`, gap: 8, marginBottom: 14 }}>
+          {timings.map((t, i) => (
+            <div key={i} style={{ background: "var(--bg-canvas)", borderRadius: "var(--r)", padding: "8px 12px" }}>
+              <div style={{ fontSize: 10, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{t.label}</div>
+              <div style={{ fontWeight: 600, fontSize: 14, marginTop: 2 }}>{t.val}</div>
+              <div style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 1 }}>{t.sub}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Customer note */}
+      {order.customer_note && (
+        <div style={{ marginBottom: 12, padding: "8px 12px", background: "color-mix(in srgb, var(--amber) 10%, transparent)", borderRadius: "var(--r)", borderLeft: "3px solid var(--amber, #f59e0b)", fontSize: 13 }}>
+          <span style={{ fontWeight: 600 }}>Пожелание гостя: </span>{order.customer_note}
+        </div>
+      )}
+
+      {/* Cancel reason */}
+      {order.cancel_reason && (
+        <div style={{ marginBottom: 12, padding: "8px 12px", background: "color-mix(in srgb, var(--red, #e03) 8%, transparent)", borderRadius: "var(--r)", borderLeft: "3px solid var(--red, #e03)", fontSize: 13 }}>
+          <span style={{ fontWeight: 600 }}>Причина отмены: </span>{order.cancel_reason}
+        </div>
+      )}
+
+      {/* Items */}
+      <div style={{ border: "1px solid var(--line-1)", borderRadius: "var(--r)", overflow: "hidden", marginBottom: 14 }}>
+        <div style={{ background: "var(--bg-canvas)", padding: "6px 12px", fontSize: 10, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: "0.05em", display: "grid", gridTemplateColumns: "1fr 50px 90px" }}>
+          <span>Позиция</span><span style={{ textAlign: "center" }}>Кол.</span><span style={{ textAlign: "right" }}>Сумма</span>
+        </div>
+        {order.items.map(item => (
+          <div key={item.id} style={{ padding: "8px 12px", borderTop: "1px solid var(--line-1)", display: "grid", gridTemplateColumns: "1fr 50px 90px", alignItems: "start" }}>
+            <div>
+              <div style={{ fontSize: 13.5, fontWeight: 500 }}>{item.menu_item?.name ?? `#${item.menu_item_id}`}</div>
+              {item.note && (
+                <div style={{ fontSize: 11, color: "var(--amber, #f59e0b)", marginTop: 3, display: "flex", gap: 4, alignItems: "center" }}>
+                  <Icon name="note" size={10} /> {item.note}
+                </div>
+              )}
+            </div>
+            <div style={{ textAlign: "center", fontWeight: 600, fontSize: 13, paddingTop: 2 }}>×{item.quantity}</div>
+            <div style={{ textAlign: "right", fontWeight: 600, fontSize: 13, paddingTop: 2 }}>{fmtKZT(item.line_total)}</div>
+          </div>
+        ))}
+        <div style={{ padding: "8px 12px", borderTop: "1px solid var(--line-1)", background: "var(--bg-canvas)", display: "grid", gridTemplateColumns: "1fr 50px 90px", fontWeight: 700, fontSize: 14 }}>
+          <span>Итого</span><span /><span style={{ textAlign: "right" }} className="num">{fmtKZT(order.total_amount)}</span>
+        </div>
+      </div>
+
+      {/* Events log */}
+      {order.events.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 7 }}>История</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {order.events.map(ev => (
+              <div key={ev.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 12 }}>
+                <span style={{ color: "var(--ink-4)", flexShrink: 0, paddingTop: 1, minWidth: 45 }}>{fmtTime(ev.created_at)}</span>
+                <span style={{ flex: 1, color: "var(--ink-2)" }}>
+                  {ev.to_status
+                    ? <>{STATUS_RU[ev.from_status ?? ""] ?? ev.from_status} <span style={{ color: "var(--ink-4)" }}>→</span> <b>{STATUS_RU[ev.to_status] ?? ev.to_status}</b></>
+                    : ev.event_type}
+                  {ev.message && <span style={{ color: "var(--ink-3)", marginLeft: 5 }}>· {ev.message}</span>}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 // ─── WaiterOrders ─────────────────────────────────────────────────────────────
 
 const WAITER_PAGE_SIZE = 20;
@@ -231,6 +374,7 @@ export function WaiterOrders({ setRoute }: { setRoute: SetRoute }) {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<WaiterSortValue>("time_desc");
   const [page, setPage] = useState(1);
+  const [detailOrder, setDetailOrder] = useState<Order | null>(null);
 
   useEffect(() => { setPage(1); }, [search, statusFilter, sortBy]);
 
@@ -325,14 +469,10 @@ export function WaiterOrders({ setRoute }: { setRoute: SetRoute }) {
               className="list-row"
               style={{
                 gridTemplateColumns: "70px 80px 1fr 90px 110px 120px",
-                cursor: !["paid", "cancelled"].includes(o.status) ? "pointer" : "default",
+                cursor: "pointer",
                 alignItems: "flex-start",
               }}
-              onClick={() => {
-                if (!["paid", "cancelled"].includes(o.status)) {
-                  setRoute({ id: "w_table_session", tableId: o.table_id });
-                }
-              }}
+              onClick={() => setDetailOrder(o)}
             >
               <div className="mono" style={{ fontWeight: 600, paddingTop: 1 }}>#{o.id}</div>
               <div style={{ paddingTop: 1 }}>{o.table ? `Стол ${o.table.number}` : `#${o.table_id}`}</div>
@@ -371,6 +511,14 @@ export function WaiterOrders({ setRoute }: { setRoute: SetRoute }) {
           </div>
         )}
       </div>
+
+      {detailOrder && (
+        <OrderDetailModal
+          order={detailOrder}
+          onClose={() => setDetailOrder(null)}
+          setRoute={setRoute}
+        />
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import type { Order } from "../types";
 import { Icon } from "../components/Icon";
 import { StatusBadge, fmtTime, Modal } from "../components/UI";
+import { OrderDetailModal } from "./Waiter";
 
 function useTick() {
   const [, setTick] = useState(0);
@@ -412,6 +413,7 @@ export function KitchenHistory() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState<typeof SORT_OPTIONS[number]["value"]>("time_desc");
   const [page, setPage] = useState(1);
+  const [detailOrder, setDetailOrder] = useState<Order | null>(null);
 
   const load = useCallback(async () => {
     if (!state.token) return;
@@ -501,7 +503,12 @@ export function KitchenHistory() {
             <div>#</div><div>Стол</div><div>Позиции</div><div>Статус</div><div>Готово в</div>
           </div>
           {paginated.map(o => (
-            <div key={o.id} className="list-row" style={{ gridTemplateColumns: "70px 80px 1fr 120px 110px" }}>
+            <div
+              key={o.id}
+              className="list-row"
+              style={{ gridTemplateColumns: "70px 80px 1fr 120px 110px", cursor: "pointer" }}
+              onClick={() => setDetailOrder(o)}
+            >
               <div className="mono" style={{ fontWeight: 600 }}>#{o.id}</div>
               <div>{o.table ? `Стол ${o.table.number}` : `#${o.table_id}`}</div>
               <div style={{ fontSize: 12.5, color: "var(--ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -534,6 +541,13 @@ export function KitchenHistory() {
           </div>
         )}
       </div>
+
+      {detailOrder && (
+        <OrderDetailModal
+          order={detailOrder}
+          onClose={() => setDetailOrder(null)}
+        />
+      )}
     </div>
   );
 }
