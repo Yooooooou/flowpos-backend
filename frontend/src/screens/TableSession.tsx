@@ -439,6 +439,7 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
   const [method, setMethod] = useState<"cash" | "card" | "qr" | "account">("cash");
   const [received, setReceived] = useState("");
   const [confirm, setConfirm] = useState(false);
+  const [confirmAll, setConfirmAll] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
 
@@ -526,6 +527,7 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
   };
 
   const total = selectedOrder ? parseFloat(selectedOrder.total_amount) : 0;
+  const allTotal = orders.reduce((s, o) => s + parseFloat(o.total_amount), 0);
   const receivedAmt = parseFloat(received) || 0;
   const change = method === "cash" ? Math.max(0, receivedAmt - total) : 0;
 
@@ -646,6 +648,26 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
     } finally {
       setProcessing(false);
       setConfirm(false);
+    }
+  };
+
+  const payAll = async () => {
+    setProcessing(true);
+    try {
+      for (const order of orders) {
+        await createPayment({
+          order_id: order.id,
+          method,
+          amount_received: parseFloat(order.total_amount),
+        });
+      }
+      toast("success", `Стол ${table?.number ?? tableId} оплачен`);
+      setRoute({ id: "w_tables" });
+    } catch (e: unknown) {
+      toast("error", e instanceof Error ? e.message : "Ошибка оплаты");
+    } finally {
+      setProcessing(false);
+      setConfirmAll(false);
     }
   };
 
@@ -774,6 +796,16 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
             >
               <Icon name="check" /> Принять оплату {fmtKZT(total)}
             </button>
+            {orders.length > 1 && (
+              <button
+                className="btn block"
+                style={{ background: "var(--ink-1)", color: "var(--bg-paper)", border: "none" }}
+                onClick={() => setConfirmAll(true)}
+                disabled={processing}
+              >
+                <Icon name="card" /> Оплатить все {orders.length} чека · {fmtKZT(allTotal)}
+              </button>
+            )}
           </div>
         </aside>
       </div>
@@ -790,6 +822,33 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
           <div style={{ textAlign: "center", color: "var(--ink-3)", fontSize: 14 }}>
             {METHODS_MAP[method]} · Стол {table?.number ?? tableId}
             {orders.length > 1 && selectedOrder && ` · Чек ${orders.indexOf(selectedOrder) + 1} из ${orders.length}`}
+          </div>
+        </Modal>
+      )}
+
+      {confirmAll && (
+        <Modal
+          title="Оплатить все чеки?"
+          onClose={() => setConfirmAll(false)}
+          footer={<>
+            <button className="btn ghost" onClick={() => setConfirmAll(false)}>Отмена</button>
+            <button className="btn success" onClick={payAll} disabled={processing}>
+              {processing ? <><span className="spin" /> Обработка...</> : "Подтвердить"}
+            </button>
+          </>}
+          width={400}
+        >
+          <div className="num" style={{ fontSize: 30, fontWeight: 700, textAlign: "center", marginBottom: 8 }}>{fmtKZT(allTotal)}</div>
+          <div style={{ textAlign: "center", color: "var(--ink-3)", fontSize: 14, marginBottom: 14 }}>
+            {METHODS_MAP[method]} · Стол {table?.number ?? tableId} · {orders.length} чека
+          </div>
+          <div style={{ background: "var(--bg-canvas)", borderRadius: "var(--r)", overflow: "hidden", border: "1px solid var(--line-1)" }}>
+            {orders.map((o, i) => (
+              <div key={o.id} style={{ display: "flex", justifyContent: "space-between", padding: "9px 14px", borderBottom: i < orders.length - 1 ? "1px solid var(--line-1)" : "none", fontSize: 13 }}>
+                <span style={{ color: "var(--ink-2)" }}>Чек {i + 1}</span>
+                <span className="num" style={{ fontWeight: 600 }}>{fmtKZT(o.total_amount)}</span>
+              </div>
+            ))}
           </div>
         </Modal>
       )}

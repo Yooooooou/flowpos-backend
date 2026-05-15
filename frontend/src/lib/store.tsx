@@ -301,9 +301,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: "SET_ITEMS", items });
 
         if (user.role === "waiter") {
-          const board = await api.waiterBoard(token);
+          const [board, orders] = await Promise.all([
+            api.waiterBoard(token),
+            api.orders(token, { limit: 150 }),
+          ]);
           dispatch({ type: "SET_WAITER_BOARD", board });
-          dispatch({ type: "SET_ORDERS", orders: board.active_orders });
+          dispatch({ type: "SET_ORDERS", orders });
         } else if (user.role === "kitchen") {
           const [board, orders] = await Promise.all([
             api.kitchenBoard(token),
