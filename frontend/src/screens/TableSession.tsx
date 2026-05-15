@@ -701,11 +701,9 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
           )}
 
           <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
-            {orders.length === 1 && (
-              <button className="btn ghost block" onClick={enterSplit}>
-                <Icon name="receipt" /> Разделить счёт
-              </button>
-            )}
+            <button className="btn ghost block" onClick={enterSplit}>
+              <Icon name="receipt" /> Разделить счёт
+            </button>
             <button
               className="btn success block lg"
               onClick={() => setConfirm(true)}
