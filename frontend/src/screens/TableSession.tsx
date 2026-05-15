@@ -21,10 +21,10 @@ function elapsedMin(dateStr: string) {
 const RECEIPT_VENUE   = "Ресторан";
 const RECEIPT_SERVICE = 0.10; // 10% service charge shown on receipt
 
-function buildReceiptHtml(orders: Order[], table: Table | null | undefined, now: Date): string {
+function buildReceiptHtml(orders: Order[], table: Table | null | undefined, now: Date, svcRate: number): string {
   const items   = orders.flatMap(o => o.items);
   const sub     = orders.reduce((s, o) => s + parseFloat(o.total_amount), 0);
-  const svc     = Math.round(sub * RECEIPT_SERVICE);
+  const svc     = Math.round(sub * svcRate * 100) / 100;
   const grand   = sub + svc;
   const fmt     = (n: number) => n.toLocaleString("ru-RU") + " ₸";
   const dateStr = now.toLocaleDateString("ru-RU");
@@ -75,7 +75,7 @@ function buildReceiptHtml(orders: Order[], table: Table | null | undefined, now:
 <hr class="sep">
 <table class="tot">
   <tr><td>Всего:</td><td class="r">${fmt(sub)}</td></tr>
-  <tr><td>Обслуживание (${RECEIPT_SERVICE * 100}%):</td><td class="r">${fmt(svc)}</td></tr>
+  ${svc > 0 ? `<tr><td>Обслуживание (${svcRate * 100}%):</td><td class="r">${fmt(svc)}</td></tr>` : ""}
 </table>
 <table class="tot"><tr class="grand"><td>Итого к оплате:</td><td class="r">${fmt(grand)}</td></tr></table>
 <hr class="sep">
@@ -83,21 +83,22 @@ function buildReceiptHtml(orders: Order[], table: Table | null | undefined, now:
 </body></html>`;
 }
 
-function ReceiptPreviewModal({ orders, table, onClose }: {
+function ReceiptPreviewModal({ orders, table, svcRate, onClose }: {
   orders: Order[];
   table: Table | null | undefined;
+  svcRate: number;
   onClose: () => void;
 }) {
   const now   = new Date();
   const items = orders.flatMap(o => o.items);
   const sub   = orders.reduce((s, o) => s + parseFloat(o.total_amount), 0);
-  const svc   = Math.round(sub * RECEIPT_SERVICE);
+  const svc   = Math.round(sub * svcRate * 100) / 100;
   const grand = sub + svc;
 
   const handlePrint = () => {
     const win = window.open("", "_blank", "width=420,height=660,menubar=no,toolbar=no,scrollbars=yes");
     if (!win) return;
-    win.document.write(buildReceiptHtml(orders, table, now));
+    win.document.write(buildReceiptHtml(orders, table, now, svcRate));
     win.document.close();
     win.focus();
     setTimeout(() => win.print(), 300);
@@ -159,10 +160,12 @@ function ReceiptPreviewModal({ orders, table, onClose }: {
 
         {/* Totals */}
         <div style={row}><span>Всего:</span><span className="num">{fmtKZT(sub)}</span></div>
-        <div style={{ ...row, color: "#666", fontSize: 11 }}>
-          <span>Обслуживание ({RECEIPT_SERVICE * 100}%):</span>
-          <span className="num">{fmtKZT(svc)}</span>
-        </div>
+        {svc > 0 && (
+          <div style={{ ...row, color: "#666", fontSize: 11 }}>
+            <span>Обслуживание ({svcRate * 100}%):</span>
+            <span className="num">{fmtKZT(svc)}</span>
+          </div>
+        )}
         <div style={{ ...row, fontWeight: 700, fontSize: 14, borderTop: "1.5px solid #333", marginTop: 5, paddingTop: 5 }}>
           <span>Итого к оплате:</span>
           <span className="num">{fmtKZT(grand)}</span>
@@ -730,8 +733,14 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
     }
   };
 
-  const total = selectedOrder ? parseFloat(selectedOrder.total_amount) : 0;
-  const allTotal = orders.reduce((s, o) => s + parseFloat(o.total_amount), 0);
+  const svcRate     = table?.is_takeaway ? 0 : RECEIPT_SERVICE;
+  const orderSvc    = (o: Order) => Math.round(parseFloat(o.total_amount) * svcRate * 100) / 100;
+  const orderTotal  = (o: Order) => parseFloat(o.total_amount) + orderSvc(o);
+  const subtotalAmt = selectedOrder ? parseFloat(selectedOrder.total_amount) : 0;
+  const svcAmt      = selectedOrder ? orderSvc(selectedOrder) : 0;
+  const total       = subtotalAmt + svcAmt;
+  const allSubtotal = orders.reduce((s, o) => s + parseFloat(o.total_amount), 0);
+  const allTotal    = orders.reduce((s, o) => s + orderTotal(o), 0);
   const receivedAmt = parseFloat(received) || 0;
   const change = method === "cash" ? Math.max(0, receivedAmt - total) : 0;
 
@@ -838,6 +847,7 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
         order_id: selectedOrder.id,
         method,
         amount_received: amtReceived,
+        tip_amount: svcAmt,
       });
       setReceived("");
       setSelectedOrderId(null);
@@ -862,7 +872,8 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
         await createPayment({
           order_id: order.id,
           method,
-          amount_received: parseFloat(order.total_amount),
+          amount_received: orderTotal(order),
+          tip_amount: orderSvc(order),
         });
       }
       toast("success", `Стол ${table?.number ?? tableId} оплачен`);
@@ -893,6 +904,11 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
           {orders.length > 1 && selectedOrder && (
             <span style={{ marginLeft: 8, fontWeight: 400, color: "var(--ink-3)", fontSize: 13 }}>
               Чек {orders.indexOf(selectedOrder) + 1} из {orders.length}
+            </span>
+          )}
+          {table?.is_takeaway && (
+            <span style={{ marginLeft: 10, fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: "color-mix(in srgb, var(--olive) 14%, transparent)", color: "var(--olive)", border: "1px solid var(--olive)" }}>
+              Без обслуживания
             </span>
           )}
         </div>
@@ -928,9 +944,17 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
                         <span style={{ fontWeight: 500 }}>{fmtKZT(item.line_total)}</span>
                       </div>
                     ))}
-                    <div style={{ padding: "10px 16px", display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 15 }}>
-                      <span>Итого</span>
-                      <span className="num">{fmtKZT(order.total_amount)}</span>
+                    <div style={{ padding: "8px 16px 10px" }}>
+                      {svcRate > 0 && (
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-3)", paddingBottom: 3 }}>
+                          <span>Обслуживание ({svcRate * 100}%)</span>
+                          <span className="num">{fmtKZT(orderSvc(order))}</span>
+                        </div>
+                      )}
+                      <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 15, borderTop: svcRate > 0 ? "1px solid var(--line-1)" : "none", paddingTop: svcRate > 0 ? 4 : 0 }}>
+                        <span>Итого</span>
+                        <span className="num">{fmtKZT(orderTotal(order))}</span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -951,8 +975,16 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
                   ))}
                 </div>
               ))}
-              <div style={{ padding: "12px 18px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 18, paddingTop: 4 }}>
+              <div style={{ padding: "10px 18px 14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "var(--ink-3)", paddingBottom: 4 }}>
+                  <span>Подытог</span><span className="num">{fmtKZT(subtotalAmt)}</span>
+                </div>
+                {svcAmt > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "var(--ink-3)", paddingBottom: 6 }}>
+                    <span>Обслуживание ({svcRate * 100}%)</span><span className="num">{fmtKZT(svcAmt)}</span>
+                  </div>
+                )}
+                <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 18, borderTop: "1px solid var(--line-1)", paddingTop: 6 }}>
                   <span>Итого</span><span className="num">{fmtKZT(total)}</span>
                 </div>
               </div>
@@ -1053,10 +1085,15 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
             {orders.map((o, i) => (
               <div key={o.id} style={{ display: "flex", justifyContent: "space-between", padding: "9px 14px", borderBottom: i < orders.length - 1 ? "1px solid var(--line-1)" : "none", fontSize: 13 }}>
                 <span style={{ color: "var(--ink-2)" }}>Чек {i + 1}</span>
-                <span className="num" style={{ fontWeight: 600 }}>{fmtKZT(o.total_amount)}</span>
+                <span className="num" style={{ fontWeight: 600 }}>{fmtKZT(orderTotal(o))}</span>
               </div>
             ))}
           </div>
+          {svcRate > 0 && (
+            <div style={{ marginTop: 10, fontSize: 12, color: "var(--ink-3)", textAlign: "center" }}>
+              Включает обслуживание {svcRate * 100}% · {fmtKZT(orders.reduce((s, o) => s + orderSvc(o), 0))}
+            </div>
+          )}
         </Modal>
       )}
 
@@ -1064,6 +1101,7 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
         <ReceiptPreviewModal
           orders={orders}
           table={table}
+          svcRate={svcRate}
           onClose={() => setShowReceipt(false)}
         />
       )}

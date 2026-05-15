@@ -32,6 +32,7 @@ export interface Table {
   seats: number;
   status: TableStatus;
   location: string | null;
+  is_takeaway: boolean;
 }
 
 export interface TableOverview extends Table {

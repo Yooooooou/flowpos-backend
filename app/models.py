@@ -123,6 +123,7 @@ class CafeTable(Base):
     seats: Mapped[int] = mapped_column(Integer, default=2)
     status: Mapped[TableStatus] = mapped_column(Enum(TableStatus), default=TableStatus.free)
     location: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    is_takeaway: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="FALSE")
 
     orders: Mapped[list["Order"]] = relationship(back_populates="table")
 

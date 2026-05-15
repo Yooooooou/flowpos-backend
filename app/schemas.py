@@ -54,9 +54,10 @@ class UserRead(UserBase):
 
 class TableBase(BaseModel):
     number: str = Field(min_length=1, max_length=20)
-    seats: int = Field(ge=1, le=30)
+    seats: int = Field(ge=0, le=30)
     status: TableStatus = TableStatus.free
     location: str | None = Field(default=None, max_length=120)
+    is_takeaway: bool = False
 
 
 class TableCreate(TableBase):
