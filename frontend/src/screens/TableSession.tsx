@@ -83,10 +83,11 @@ function buildReceiptHtml(orders: Order[], table: Table | null | undefined, now:
 </body></html>`;
 }
 
-function ReceiptPreviewModal({ orders, table, svcRate, onClose }: {
+function ReceiptPreviewModal({ orders, table, svcRate, checkLabel, onClose }: {
   orders: Order[];
   table: Table | null | undefined;
   svcRate: number;
+  checkLabel?: string;
   onClose: () => void;
 }) {
   const now   = new Date();
@@ -109,7 +110,7 @@ function ReceiptPreviewModal({ orders, table, svcRate, onClose }: {
 
   return (
     <Modal
-      title="Чек для гостя"
+      title={checkLabel ? `Чек для гостя · ${checkLabel}` : "Чек для гостя"}
       onClose={onClose}
       width={360}
       footer={<>
@@ -648,7 +649,7 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
   const [confirmAll, setConfirmAll] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
-  const [showReceipt, setShowReceipt] = useState(false);
+  const [receiptOrders, setReceiptOrders] = useState<Order[] | null>(null);
 
   // The selected check to pay (auto-falls-back to first active order)
   const selectedOrder = orders.find(o => o.id === selectedOrderId) ?? orders[0] ?? null;
@@ -936,7 +937,16 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
                   >
                     <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--line-1)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div style={{ fontWeight: 700, fontSize: 14 }}>Чек {idx + 1}</div>
-                      <StatusBadge status={order.status} />
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <StatusBadge status={order.status} />
+                        <button
+                          onClick={e => { e.stopPropagation(); setReceiptOrders([order]); }}
+                          title="Предварительный чек"
+                          style={{ background: "none", border: "1px solid var(--line-2)", borderRadius: 5, cursor: "pointer", padding: "2px 7px", color: "var(--ink-3)", fontSize: 11, display: "flex", alignItems: "center", gap: 3, lineHeight: 1.6 }}
+                        >
+                          <Icon name="receipt" size={11} /> Чек
+                        </button>
+                      </div>
                     </div>
                     {order.items.map(item => (
                       <div key={item.id} style={{ padding: "7px 16px", borderBottom: "1px solid var(--line-1)", display: "flex", justifyContent: "space-between", fontSize: 13 }}>
@@ -1025,8 +1035,8 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
             <button className="btn ghost block" onClick={enterSplit}>
               <Icon name="receipt" /> Разделить счёт
             </button>
-            <button className="btn ghost block" onClick={() => setShowReceipt(true)}>
-              <Icon name="note" /> Чек для гостя
+            <button className="btn ghost block" onClick={() => setReceiptOrders(orders)}>
+              <Icon name="note" /> Чек для гостя{orders.length > 1 ? " (общий)" : ""}
             </button>
             <button
               className="btn success block lg"
@@ -1097,12 +1107,15 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
         </Modal>
       )}
 
-      {showReceipt && (
+      {receiptOrders && (
         <ReceiptPreviewModal
-          orders={orders}
+          orders={receiptOrders}
           table={table}
           svcRate={svcRate}
-          onClose={() => setShowReceipt(false)}
+          checkLabel={receiptOrders.length === 1 && orders.length > 1
+            ? `Чек ${orders.indexOf(receiptOrders[0]) + 1} из ${orders.length}`
+            : undefined}
+          onClose={() => setReceiptOrders(null)}
         />
       )}
     </>
