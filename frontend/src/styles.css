@@ -219,3 +219,101 @@ input,textarea,select{box-sizing:border-box;}
 .list-row{border-bottom:1px solid var(--line-1);transition:background 120ms ease;}
 .list-row:hover{background:var(--bg-hover);}
 .list-row:last-child{border-bottom:0;}
+
+/* ─── Mobile-only components (hidden on desktop) ─────────────────────────── */
+.mobile-nav{display:none;}
+.sidebar-close{display:none;}
+.nav-scrim{position:fixed;inset:0;background:rgba(20,17,14,.4);backdrop-filter:blur(2px);z-index:190;animation:fadeIn 160ms ease;}
+
+/* ─── Responsive: tablet & mobile (≤767px) ───────────────────────────────── */
+@media(max-width:767px){
+  /* App shell: collapse to single column, reserve bottom nav space */
+  .app{grid-template-columns:1fr;}
+  .app:not(.fullscreen){padding-bottom:64px;}
+  .app.fullscreen{height:auto;min-height:100vh;}
+
+  /* Sidebar becomes slide-in overlay */
+  .sidebar{position:fixed;top:0;left:0;bottom:0;width:280px;z-index:200;transform:translateX(-100%);transition:transform 220ms cubic-bezier(.2,.9,.3,1);box-shadow:var(--sh-pop);}
+  .nav-open .sidebar{transform:translateX(0);}
+
+  /* Sidebar close button */
+  .sidebar-close{display:flex;align-items:center;justify-content:center;position:absolute;top:14px;right:12px;width:32px;height:32px;background:var(--bg-hover);border:1px solid var(--line-1);border-radius:var(--r-sm);cursor:pointer;color:var(--ink-2);z-index:1;}
+  .sidebar-close:hover{background:var(--bg-active);}
+
+  /* Mobile bottom navigation */
+  .mobile-nav{display:flex;position:fixed;bottom:0;left:0;right:0;height:64px;padding-bottom:env(safe-area-inset-bottom,0px);background:var(--bg-paper);border-top:1px solid var(--line-1);box-shadow:0 -2px 10px rgba(27,25,22,.07);z-index:100;align-items:stretch;}
+  .mobile-nav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px 4px;cursor:pointer;color:var(--ink-4);font-size:10px;font-weight:600;position:relative;background:transparent;border:none;transition:color 120ms ease;user-select:none;-webkit-tap-highlight-color:transparent;}
+  .mobile-nav-item:active{background:var(--bg-hover);}
+  .mobile-nav-item.active{color:var(--brand);}
+  .mobile-nav-item .ico{width:22px;height:22px;flex:none;}
+  .mobile-nav-badge{position:absolute;top:6px;right:calc(50% - 20px);background:var(--brand);color:#fff;border-radius:999px;font-size:9px;font-weight:700;min-width:16px;height:16px;display:flex;align-items:center;justify-content:center;padding:0 4px;border:2px solid var(--bg-paper);}
+
+  /* Page layout */
+  .topbar{padding:0 12px;gap:8px;}
+  .topbar h1{font-size:15px;}
+  .page-head{padding:14px 16px 10px;flex-wrap:wrap;gap:10px;align-items:flex-start;}
+  .page-head h2{font-size:18px;}
+  .page-head .actions{width:100%;flex-wrap:wrap;gap:8px;}
+  .page-head .actions .segmented{overflow-x:auto;max-width:100%;}
+  .page-head .actions .seg{white-space:nowrap;}
+  .page-body{padding:4px 12px 16px;}
+  .app.role-waiter .page-head,.app.role-kitchen .page-head{padding:12px 16px 10px;}
+  .app.role-waiter .page-body,.app.role-kitchen .page-body{padding:4px 12px 14px;}
+
+  /* List views: horizontal scroll */
+  .card:has(.list-head){overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .card:has(.list-head) .list-head,.card:has(.list-head) .list-row{min-width:max-content;}
+
+  /* Modals */
+  .modal{width:97vw;max-height:93vh;border-radius:var(--r);}
+  .modal-head{padding:14px 16px 10px;}
+  .modal-body{padding:14px 16px;}
+  .modal-foot{padding:10px 16px;}
+
+  /* Drawers: full width */
+  .drawer{width:100vw;}
+
+  /* Toasts */
+  .toasts{right:8px;left:8px;}
+  .toast{min-width:0;}
+
+  /* Dev toolbar: lift above mobile nav */
+  .devbar{bottom:74px;}
+
+  /* ── Login ────────────────────────────────────────────────────────── */
+  .login-content{grid-template-columns:1fr !important;gap:20px !important;max-width:440px !important;}
+
+  /* ── Kitchen KDS: swipe between columns ──────────────────────────── */
+  .kds-canvas{grid-template-columns:repeat(3,min(86vw,320px)) !important;height:calc(100vh - 60px - 64px) !important;overflow-x:auto !important;overflow-y:hidden !important;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;padding:10px !important;gap:10px !important;}
+  .kds-canvas>div{scroll-snap-align:start;}
+
+  /* ── Waiter tables canvas ─────────────────────────────────────────── */
+  .tables-canvas{height:calc(100vh - 60px - 64px) !important;}
+
+  /* ── OrderCreate: cart as full-screen overlay ─────────────────────── */
+  .order-create-grid{grid-template-columns:1fr !important;height:calc(100vh - 56px) !important;}
+  .order-create-cart{position:fixed !important;top:56px !important;left:0 !important;right:0 !important;bottom:0 !important;z-index:50 !important;border-left:none !important;box-shadow:var(--sh-pop);}
+
+  /* ── OrderDetails: stack receipt + menu ──────────────────────────── */
+  .order-details-grid{grid-template-columns:1fr !important;display:flex !important;flex-direction:column !important;height:calc(100vh - 56px - 64px) !important;overflow:hidden !important;}
+  .order-receipt{flex:0 0 48%;border-right:none !important;border-bottom:1px solid var(--line-1) !important;}
+  .order-menu{flex:1;min-height:0;overflow:hidden !important;}
+
+  /* ── WaiterPayment: stack ─────────────────────────────────────────── */
+  .payment-grid{grid-template-columns:1fr !important;height:auto !important;overflow:auto !important;}
+  .payment-aside{border-left:none !important;border-top:1px solid var(--line-1) !important;}
+
+  /* ── Manager Dashboard ─────────────────────────────────────────────── */
+  .dash-main{grid-template-columns:1fr !important;}
+}
+
+/* ─── Small phones (≤479px) ─────────────────────────────────────────────── */
+@media(max-width:479px){
+  .topbar{padding:0 10px;gap:6px;}
+  .page-head{padding:10px 12px 8px;}
+  .page-body{padding:4px 8px 10px;}
+  .modal-head h3{font-size:15px;}
+  .kds-canvas{grid-template-columns:repeat(3,90vw) !important;}
+  .mobile-nav{height:60px;}
+  .app:not(.fullscreen){padding-bottom:60px;}
+}

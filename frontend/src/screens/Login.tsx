@@ -48,7 +48,7 @@ export function Login() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 48, alignItems: "center", maxWidth: 980, padding: 24 }}>
+      <div className="login-content" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 48, alignItems: "center", maxWidth: 980, padding: 24 }}>
         {/* Left: tagline + role cards */}
         <div>
           <div style={{ fontSize: 36, fontWeight: 600, letterSpacing: "-0.02em", lineHeight: 1.1, marginBottom: 12 }}>

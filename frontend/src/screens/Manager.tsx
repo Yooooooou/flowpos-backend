@@ -44,7 +44,7 @@ export function ManagerDashboard() {
         <Metric label="Всего заказов"    value={orders.length}          icon="analytics" />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 16, marginBottom: 24 }}>
+      <div className="dash-main" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 16, marginBottom: 24 }}>
         {/* Active orders */}
         <div className="card">
           <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>

@@ -39,7 +39,7 @@ export function WaiterTables({ setRoute }: { setRoute: SetRoute }) {
         <button className="btn sm" onClick={refreshTables}><Icon name="sort" /> Обновить</button>
       </header>
 
-      <div style={{
+      <div className="tables-canvas" style={{
         padding: 16,
         height: "calc(100vh - 60px)",
         overflowY: "auto",

@@ -162,7 +162,7 @@ export function OrderDetails({ orderId, setRoute }: Props) {
       </header>
 
       {/* Body: receipt (left) + menu browser or info (right) */}
-      <div style={{
+      <div className="order-details-grid" style={{
         display: "grid",
         gridTemplateColumns: "360px 1fr",
         height: "calc(100vh - 56px)",
@@ -170,7 +170,7 @@ export function OrderDetails({ orderId, setRoute }: Props) {
       }}>
 
         {/* ── Left: receipt panel ── */}
-        <div style={{
+        <div className="order-receipt" style={{
           display: "flex", flexDirection: "column",
           borderRight: "1px solid var(--line-1)",
           background: "var(--bg-paper)",
@@ -315,7 +315,7 @@ export function OrderDetails({ orderId, setRoute }: Props) {
 
         {/* ── Right: menu browser (when items can be added) or info (read-only) ── */}
         {canAddItems ? (
-          <div style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+          <div className="order-menu" style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
             {/* Search + categories */}
             <div style={{ flexShrink: 0, padding: "12px 16px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-paper)" }}>
               <div style={{ position: "relative", marginBottom: 10 }}>
@@ -543,7 +543,7 @@ export function WaiterPayment({ orderId, setRoute }: PaymentProps) {
         <div style={{ flex: 1 }} />
       </header>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", height: "calc(100vh - 56px)", overflow: "hidden" }}>
+      <div className="payment-grid" style={{ display: "grid", gridTemplateColumns: "1fr 380px", height: "calc(100vh - 56px)", overflow: "hidden" }}>
         {/* Left: order summary */}
         <div style={{ overflow: "auto", padding: 24 }}>
           <div className="card" style={{ marginBottom: 16 }}>
@@ -578,7 +578,7 @@ export function WaiterPayment({ orderId, setRoute }: PaymentProps) {
         </div>
 
         {/* Right: payment form */}
-        <aside style={{ borderLeft: "1px solid var(--line-1)", background: "var(--bg-paper)", overflow: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
+        <aside className="payment-aside" style={{ borderLeft: "1px solid var(--line-1)", background: "var(--bg-paper)", overflow: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Способ оплаты</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>

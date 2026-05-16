@@ -315,7 +315,7 @@ export function KitchenDisplay() {
       )}
 
       {/* 3-column kanban */}
-      <div style={{
+      <div className="kds-canvas" style={{
         display: "grid",
         gridTemplateColumns: "1fr 1fr 1fr",
         gap: 12,

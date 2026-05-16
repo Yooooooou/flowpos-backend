@@ -83,6 +83,18 @@ const ROLE_SECTION_LABEL: Record<UserRole, string> = {
   kitchen: "Кухня",
 };
 
+// Mobile bottom-nav items per role (≤4 items; manager gets an extra "more" button)
+const MOBILE_NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
+  waiter:  WAITER_NAV,
+  kitchen: KITCHEN_NAV,
+  manager: [
+    { id: "m_dashboard", label: "Обзор",  icon: "dashboard" },
+    { id: "m_orders",    label: "Заказы", icon: "orders", badge: "live" },
+    { id: "m_menu",      label: "Меню",   icon: "menu"   },
+    { id: "m_tables",    label: "Столы",  icon: "tables" },
+  ],
+};
+
 // ─── Full-screen routes (no sidebar) ─────────────────────────────────────────
 
 const FULLSCREEN_ROUTES: RouteId[] = ["w_order_create", "w_payment", "w_table_payment"];
@@ -94,10 +106,15 @@ function Shell() {
   const { user, orders, toasts } = state;
 
   const [route, setRouteState] = useState<Route>({ id: DEFAULT_ROUTE[user!.role] });
-  const setRoute = (r: { id: string; tableId?: number; orderId?: number }) =>
+  const [navOpen, setNavOpen] = useState(false);
+
+  const setRoute = (r: { id: string; tableId?: number; orderId?: number }) => {
     setRouteState(r as Route);
+    setNavOpen(false);
+  };
 
   const nav = NAV_BY_ROLE[user!.role];
+  const mobileNavItems = MOBILE_NAV_BY_ROLE[user!.role];
   const isFullscreen = FULLSCREEN_ROUTES.includes(route.id);
 
   const liveCount = orders.filter(o => !["paid", "cancelled"].includes(o.status)).length;
@@ -146,9 +163,17 @@ function Shell() {
   }
 
   return (
-    <div className={`app role-${user!.role}`}>
+    <div className={`app role-${user!.role}${navOpen ? " nav-open" : ""}`}>
+      {/* Mobile nav scrim */}
+      {navOpen && <div className="nav-scrim" onClick={() => setNavOpen(false)} />}
+
       {/* Sidebar */}
       <aside className="sidebar">
+        {/* Close button (mobile only) */}
+        <button className="sidebar-close" onClick={() => setNavOpen(false)} aria-label="Закрыть меню">
+          <Icon name="x" size={16} />
+        </button>
+
         {/* Brand */}
         <div className="brand">
           <div className="brand-mark">F</div>
@@ -165,7 +190,7 @@ function Shell() {
             <div
               key={item.id}
               className={`nav-item ${route.id === item.id ? "active" : ""}`}
-              onClick={() => setRouteState({ id: item.id })}
+              onClick={() => setRoute({ id: item.id })}
             >
               <Icon name={item.icon} />
               <span>{item.label}</span>
@@ -180,7 +205,7 @@ function Shell() {
 
         {user!.role === "manager" && (
           <div className="nav-section">
-            <div className="nav-item" onClick={() => setRouteState({ id: "m_peripherals" })}>
+            <div className="nav-item" onClick={() => setRoute({ id: "m_peripherals" })}>
               <Icon name="settings" /><span>Настройки</span>
             </div>
           </div>
@@ -205,6 +230,32 @@ function Shell() {
       <div className="main">
         {renderScreen()}
       </div>
+
+      {/* Mobile bottom navigation */}
+      <nav className="mobile-nav">
+        {mobileNavItems.map(item => (
+          <button
+            key={item.id}
+            className={`mobile-nav-item${route.id === item.id ? " active" : ""}`}
+            onClick={() => setRoute({ id: item.id })}
+          >
+            <Icon name={item.icon} size={22} />
+            <span>{item.label}</span>
+            {item.badge === "live" && liveCount > 0 && (
+              <span className="mobile-nav-badge">{liveCount}</span>
+            )}
+          </button>
+        ))}
+        {user!.role === "manager" && (
+          <button
+            className="mobile-nav-item"
+            onClick={() => setNavOpen(true)}
+          >
+            <Icon name="more" size={22} />
+            <span>Ещё</span>
+          </button>
+        )}
+      </nav>
 
       <Toasts toasts={toasts} />
     </div>

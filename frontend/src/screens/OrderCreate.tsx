@@ -120,7 +120,7 @@ export function OrderCreate({ tableId, orderId, setRoute }: Props) {
         )}
       </header>
 
-      <div style={{
+      <div className="order-create-grid" style={{
         display: "grid",
         gridTemplateColumns: cartOpen ? "1fr 380px" : "1fr",
         height: "calc(100vh - 56px)",
@@ -211,7 +211,7 @@ export function OrderCreate({ tableId, orderId, setRoute }: Props) {
 
         {/* Cart */}
         {cartOpen && (
-          <aside style={{
+          <aside className="order-create-cart" style={{
             background: "var(--bg-paper)",
             borderLeft: "1px solid var(--line-1)",
             display: "flex",
