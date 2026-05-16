@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/types.ts","./src/vite-env.d.ts","./src/lib/api.ts","./src/lib/storage.ts"],"version":"5.9.3"}
+{"root":["./src/App.tsx","./src/main.tsx","./src/types.ts","./src/vite-env.d.ts","./src/components/Icon.tsx","./src/components/UI.tsx","./src/lib/api.ts","./src/lib/storage.ts","./src/lib/store.tsx","./src/screens/Kitchen.tsx","./src/screens/Login.tsx","./src/screens/Manager.tsx","./src/screens/OrderCreate.tsx","./src/screens/OrderDetails.tsx","./src/screens/TableSession.tsx","./src/screens/Waiter.tsx"],"version":"5.9.3"}
