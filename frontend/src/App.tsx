@@ -246,13 +246,15 @@ function Shell() {
             )}
           </button>
         ))}
-        {user!.role === "manager" && (
-          <button
-            className="mobile-nav-item"
-            onClick={() => setNavOpen(true)}
-          >
+        {user!.role === "manager" ? (
+          <button className="mobile-nav-item" onClick={() => setNavOpen(true)}>
             <Icon name="more" size={22} />
             <span>Ещё</span>
+          </button>
+        ) : (
+          <button className="mobile-nav-item" onClick={logout}>
+            <Icon name="logout" size={22} />
+            <span>Выйти</span>
           </button>
         )}
       </nav>
