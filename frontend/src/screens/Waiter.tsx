@@ -16,7 +16,7 @@ function elapsedMin(dateStr: string) {
 }
 
 export function WaiterTables({ setRoute }: { setRoute: SetRoute }) {
-  const { state, refreshTables } = useApp();
+  const { state } = useApp();
 
   const freeCount  = state.tables.filter(t => t.status === "free").length;
   const busyCount  = state.tables.filter(t => t.status === "occupied").length;
@@ -36,7 +36,6 @@ export function WaiterTables({ setRoute }: { setRoute: SetRoute }) {
           )}
         </div>
         <div className="spacer" />
-        <button className="btn sm" onClick={refreshTables}><Icon name="sort" /> Обновить</button>
       </header>
 
       <div className="tables-canvas" style={{
@@ -299,8 +298,8 @@ export function OrderDetailModal({ order, onClose, setRoute }: {
       )}
 
       {/* Items */}
-      <div style={{ border: "1px solid var(--line-1)", borderRadius: "var(--r)", overflow: "hidden", marginBottom: 14 }}>
-        <div style={{ background: "var(--bg-canvas)", padding: "6px 12px", fontSize: 10, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: "0.05em", display: "grid", gridTemplateColumns: "1fr 50px 90px" }}>
+      <div style={{ border: "1px solid var(--line-1)", borderRadius: "var(--r)", overflow: "auto", marginBottom: 14 }}>
+        <div style={{ minWidth: 280, background: "var(--bg-canvas)", padding: "6px 12px", fontSize: 10, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: "0.05em", display: "grid", gridTemplateColumns: "1fr 50px 90px" }}>
           <span>Позиция</span><span style={{ textAlign: "center" }}>Кол.</span><span style={{ textAlign: "right" }}>Сумма</span>
         </div>
         {order.items.map(item => (
@@ -369,7 +368,7 @@ const WAITER_TABS = [
 ] as const;
 
 export function WaiterOrders({ setRoute }: { setRoute: SetRoute }) {
-  const { state, refreshOrders } = useApp();
+  const { state } = useApp();
   const [statusFilter, setStatusFilter] = useState("active");
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<WaiterSortValue>("time_desc");
@@ -428,7 +427,6 @@ export function WaiterOrders({ setRoute }: { setRoute: SetRoute }) {
               </div>
             ))}
           </div>
-          <button className="btn sm" onClick={refreshOrders}><Icon name="sort" /></button>
         </div>
       </div>
 
@@ -459,7 +457,7 @@ export function WaiterOrders({ setRoute }: { setRoute: SetRoute }) {
       </div>
 
       <div className="page-body">
-        <div className="card" style={{ overflow: "hidden" }}>
+        <div className="orders-list card" style={{ overflow: "hidden" }}>
           <div className="list-head" style={{ gridTemplateColumns: "70px 80px 1fr 90px 110px 120px" }}>
             <div>#</div><div>Стол</div><div>Позиции</div><div>Создан</div><div>Сумма</div><div>Статус</div>
           </div>

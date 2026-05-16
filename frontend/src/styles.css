@@ -305,6 +305,20 @@ input,textarea,select{box-sizing:border-box;}
 
   /* ── Manager Dashboard ─────────────────────────────────────────────── */
   .dash-main{grid-template-columns:1fr !important;}
+
+  /* ── WaiterOrders: card layout on mobile ────────────────────────────── */
+  .orders-list{overflow-x:auto !important;}
+  .orders-list .list-head{display:none !important;}
+  .orders-list .list-row{display:grid !important;grid-template-columns:1fr auto !important;grid-template-rows:auto auto auto !important;gap:3px 8px !important;align-items:center !important;padding:10px 14px !important;}
+  .orders-list .list-row>*:nth-child(1){grid-column:1;grid-row:1;}
+  .orders-list .list-row>*:nth-child(2){grid-column:1;grid-row:2;font-size:12px;color:var(--ink-3) !important;padding-top:0 !important;}
+  .orders-list .list-row>*:nth-child(3){grid-column:1 / -1;grid-row:3;}
+  .orders-list .list-row>*:nth-child(4){display:none !important;}
+  .orders-list .list-row>*:nth-child(5){grid-column:2;grid-row:2;text-align:right;}
+  .orders-list .list-row>*:nth-child(6){grid-column:2;grid-row:1;display:flex;justify-content:flex-end;}
+
+  /* ── Segmented filter tabs: scroll on overflow ────────────────────── */
+  .page-head .actions .segmented{flex:1;min-width:0;overflow-x:auto;-webkit-overflow-scrolling:touch;}
 }
 
 /* ─── Small phones (≤479px) ─────────────────────────────────────────────── */
