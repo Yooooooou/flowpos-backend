@@ -319,7 +319,7 @@ export function TableSession({ tableId, setRoute }: SessionProps) {
         )}
       </header>
 
-      <div style={{
+      <div className="order-details-grid" style={{
         display: "grid",
         gridTemplateColumns: "360px 1fr",
         height: "calc(100vh - 56px)",
@@ -327,7 +327,7 @@ export function TableSession({ tableId, setRoute }: SessionProps) {
       }}>
 
         {/* ── Left: combined receipt ── */}
-        <div style={{
+        <div className="order-receipt" style={{
           display: "flex", flexDirection: "column",
           borderRight: "1px solid var(--line-1)",
           background: "var(--bg-paper)",
@@ -555,7 +555,7 @@ export function TableSession({ tableId, setRoute }: SessionProps) {
         </div>
 
         {/* ── Right: menu browser ── */}
-        <div style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+        <div className="order-menu" style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
           <div style={{ flexShrink: 0, padding: "12px 16px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-paper)" }}>
             <div style={{ position: "relative", marginBottom: 10 }}>
               <input className="input" placeholder="Поиск по меню..." value={search}
@@ -916,7 +916,7 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
         <div style={{ flex: 1 }} />
       </header>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", height: "calc(100vh - 56px)", overflow: "hidden" }}>
+      <div className="payment-grid" style={{ display: "grid", gridTemplateColumns: "1fr 380px", height: "calc(100vh - 56px)", overflow: "hidden" }}>
         {/* Left: order breakdown */}
         <div style={{ overflow: "auto", padding: 24 }}>
           {orders.length > 1 ? (
@@ -1003,7 +1003,7 @@ export function WaiterTablePayment({ tableId, setRoute }: TablePaymentProps) {
         </div>
 
         {/* Right: payment form */}
-        <aside style={{ borderLeft: "1px solid var(--line-1)", background: "var(--bg-paper)", overflow: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
+        <aside className="payment-aside" style={{ borderLeft: "1px solid var(--line-1)", background: "var(--bg-paper)", overflow: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Способ оплаты</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
