@@ -203,20 +203,17 @@ const KDS_COLUMNS = [
 // ─── KitchenDisplay ───────────────────────────────────────────────────────────
 
 export function KitchenDisplay() {
-  const { state, refreshKitchenBoard, changeStatus, updateItemStatus, toast } = useApp();
+  const { state, changeStatus, upsertKitchenOrder, updateItemStatus, toast } = useApp();
   const board = state.kitchenBoard;
   const [cancelPending, setCancelPending] = useState<{ orderId: number; reason: string } | null>(null);
   const [cancelling, setCancelling] = useState(false);
 
-  useEffect(() => {
-    const id = setInterval(refreshKitchenBoard, 15000);
-    return () => clearInterval(id);
-  }, [refreshKitchenBoard]);
+  // Kitchen board is kept live by WebSocket events; no polling needed
 
   const handleAction = async (orderId: number, status: string) => {
     try {
-      await changeStatus(orderId, status as Order["status"]);
-      await refreshKitchenBoard();
+      const updated = await changeStatus(orderId, status as Order["status"]);
+      upsertKitchenOrder(updated);
     } catch {
       toast("error", "Ошибка обновления статуса");
     }
@@ -238,8 +235,8 @@ export function KitchenDisplay() {
     if (!cancelPending || !cancelPending.reason.trim()) return;
     setCancelling(true);
     try {
-      await changeStatus(cancelPending.orderId, "cancelled" as Order["status"], cancelPending.reason.trim());
-      await refreshKitchenBoard();
+      const updated = await changeStatus(cancelPending.orderId, "cancelled" as Order["status"], cancelPending.reason.trim());
+      upsertKitchenOrder(updated);
       toast("info", `Заказ #${cancelPending.orderId} отменён`);
       setCancelPending(null);
     } catch {

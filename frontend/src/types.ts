@@ -248,4 +248,5 @@ export interface LiveEvent {
   waiter_id: number;
   priority: OrderPriority;
   total_amount: string;
+  order?: Order;
 }

@@ -164,7 +164,7 @@ async def create_payment(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot pay another waiter's order")
     if order.status not in {OrderStatus.served, OrderStatus.ready}:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Order must be ready or served before payment")
-    if db.scalar(select(Payment).where(Payment.order_id == order.id)) is not None:
+    if order.payment is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Order is already paid")
 
     discount_amount = _discount_total(order, db)

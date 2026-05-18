@@ -75,6 +75,7 @@ type Action =
   | { type: "SET_PRINT_JOBS"; printJobs: PrintJob[] }
   | { type: "SET_WAITER_BOARD"; board: WaiterBoard }
   | { type: "SET_KITCHEN_BOARD"; board: KitchenBoard }
+  | { type: "UPSERT_KITCHEN_ORDER"; order: Order }
   | { type: "ADD_TOAST"; toast: ToastMessage }
   | { type: "REMOVE_TOAST"; id: string }
   | { type: "SET_LOADING"; loading: boolean }
@@ -148,6 +149,24 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, waiterBoard: action.board };
     case "SET_KITCHEN_BOARD":
       return { ...state, kitchenBoard: action.board };
+    case "UPSERT_KITCHEN_ORDER": {
+      const o = action.order;
+      const board = state.kitchenBoard;
+      if (!board) return state;
+      const drop = (list: Order[]) => list.filter(x => x.id !== o.id);
+      const BOARD_STATUSES = ["pending", "in_progress", "ready"] as const;
+      return {
+        ...state,
+        kitchenBoard: {
+          ...board,
+          pending:     o.status === "pending"     ? [o, ...drop(board.pending)]     : drop(board.pending),
+          in_progress: o.status === "in_progress" ? [o, ...drop(board.in_progress)] : drop(board.in_progress),
+          ready:       o.status === "ready"        ? [o, ...drop(board.ready)]       : drop(board.ready),
+          metrics:     board.metrics,
+        },
+      };
+      void BOARD_STATUSES;
+    }
     case "ADD_TOAST":
       return { ...state, toasts: [...state.toasts, action.toast] };
     case "REMOVE_TOAST":
@@ -187,6 +206,7 @@ interface AppContext {
     payload: { priority?: OrderPriority; customer_note?: string; items?: OrderItemInput[] }
   ) => Promise<Order>;
   changeStatus: (orderId: number, status: OrderStatus, message?: string) => Promise<Order>;
+  upsertKitchenOrder: (order: Order) => void;
   createPayment: (payload: {
     order_id: number;
     method: string;
@@ -264,15 +284,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (ev.type === "connected") return;
         const t = loadToken();
         if (!t) return;
-        if (ev.type === "order.created" || ev.type === "order.updated" || ev.type === "order.status_changed" || ev.type === "order.paid") {
-          api.order(t, ev.order_id).then((order) => dispatch({ type: "UPSERT_ORDER", order })).catch(() => {});
-          // tableOverview only when table status may have changed (not on item-level updates)
-          if (ev.type !== "order.updated") {
-            api.tableOverview(t).then((tables) => dispatch({ type: "SET_TABLES", tables })).catch(() => {});
+        const ORDER_EVENTS = ["order.created", "order.updated", "order.status_changed", "order.paid"];
+        if (ORDER_EVENTS.includes(ev.type)) {
+          // Use the embedded order from the WS message; fall back to a fetch only if absent
+          if (ev.order) {
+            dispatch({ type: "UPSERT_ORDER", order: ev.order });
+            // Update kitchen board state locally — no HTTP call needed
+            const role = loadUser()?.role;
+            if (role === "kitchen" || role === "manager") {
+              dispatch({ type: "UPSERT_KITCHEN_ORDER", order: ev.order });
+            }
+          } else {
+            api.order(t, ev.order_id).then((order) => dispatch({ type: "UPSERT_ORDER", order })).catch(() => {});
           }
-          const role = loadUser()?.role;
-          if (role === "kitchen" || role === "manager") {
-            api.kitchenBoard(t).then((board) => dispatch({ type: "SET_KITCHEN_BOARD", board })).catch(() => {});
+          // Only refresh table overview when table occupancy may have changed
+          const tableChangingEvents = ["order.created", "order.paid", "order.cancelled"];
+          if (tableChangingEvents.includes(ev.type)) {
+            api.tableOverview(t).then((tables) => dispatch({ type: "SET_TABLES", tables })).catch(() => {});
           }
         }
       } catch {
@@ -426,14 +454,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!state.token) throw new Error("Not authenticated");
     const payment = await api.createPayment(state.token, payload);
     dispatch({ type: "SET_PAYMENTS", payments: [payment, ...state.payments] });
-    const [order, tables] = await Promise.all([
-      api.order(state.token, payload.order_id),
-      api.tableOverview(state.token),
-    ]);
-    dispatch({ type: "UPSERT_ORDER", order });
-    dispatch({ type: "SET_TABLES", tables });
+    // Patch order to paid immediately so the UI responds without waiting for WS
+    dispatch({
+      type: "UPSERT_ORDER",
+      order: {
+        ...state.orders.find(o => o.id === payload.order_id)!,
+        status: "paid" as const,
+        paid_at: new Date().toISOString(),
+        payment: {
+          method: payment.method,
+          final_amount: payment.final_amount,
+          amount_received: payment.amount_received,
+          change_due: payment.change_due,
+        },
+      },
+    });
+    // Table overview update and full order refresh come via WS broadcast
+    api.tableOverview(state.token).then((tables) => dispatch({ type: "SET_TABLES", tables })).catch(() => {});
     return payment;
-  }, [state.token, state.payments]);
+  }, [state.token, state.payments, state.orders]);
 
   const splitTableOrders = useCallback(async (
     tableId: number,
@@ -451,6 +490,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const tables = await api.tableOverview(state.token);
     dispatch({ type: "SET_TABLES", tables });
   }, [state.token, state.orders]);
+
+  const upsertKitchenOrder = useCallback((order: Order) => {
+    dispatch({ type: "UPSERT_KITCHEN_ORDER", order });
+  }, []);
 
   const updateItemStatus = useCallback(async (orderId: number, itemId: number, status: string) => {
     if (!state.token) throw new Error("Not authenticated");
@@ -493,6 +536,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createOrder,
       updateOrder,
       changeStatus,
+      upsertKitchenOrder,
       updateItemStatus,
       splitTableOrders,
       createPayment,

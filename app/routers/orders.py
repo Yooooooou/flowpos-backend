@@ -15,6 +15,7 @@ from app.models import (
     OrderItem,
     OrderPriority,
     OrderStatus,
+    Payment,
     TableStatus,
     User,
     UserRole,
@@ -57,6 +58,7 @@ def _order_stmt():
             selectinload(Order.waiter),
             selectinload(Order.items).selectinload(OrderItem.menu_item).selectinload(MenuItem.category),
             selectinload(Order.events),
+            selectinload(Order.payment),
         )
         .order_by(Order.created_at.desc())
     )
@@ -113,6 +115,7 @@ async def _broadcast_order(event_type: str, order: Order) -> None:
             "waiter_id": order.waiter_id,
             "priority": order.priority.value,
             "total_amount": str(order.total_amount),
+            "order": OrderRead.model_validate(order).model_dump(mode="json"),
         },
     )
 
