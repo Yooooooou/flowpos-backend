@@ -231,6 +231,7 @@ class OrderRead(BaseModel):
     waiter: UserRead | None = None
     items: list[OrderItemRead] = []
     events: list[OrderEventRead] = []
+    payment: "PaymentRead | None" = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -453,3 +454,6 @@ class AgentJobLeaseRead(BaseModel):
     job: PrintJobRead
     lease_token: str
     expires_at: datetime
+
+
+OrderRead.model_rebuild()

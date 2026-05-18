@@ -191,6 +191,9 @@ class Order(Base):
     events: Mapped[list["OrderEvent"]] = relationship(
         back_populates="order", cascade="all, delete-orphan", lazy="selectin"
     )
+    payment: Mapped["Payment | None"] = relationship(
+        "Payment", back_populates="order", uselist=False, lazy="selectin"
+    )
 
 
 class OrderItem(Base):
@@ -291,7 +294,7 @@ class Payment(Base):
     change_due: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
-    order: Mapped[Order] = relationship()
+    order: Mapped[Order] = relationship(back_populates="payment")
     shift: Mapped[StaffShift] = relationship()
     created_by: Mapped[User] = relationship()
 

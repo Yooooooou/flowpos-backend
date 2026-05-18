@@ -108,6 +108,12 @@ export interface Order {
   waiter?: User | null;
   items: OrderItem[];
   events: OrderEvent[];
+  payment?: {
+    method: "cash" | "card" | "mixed" | "external";
+    final_amount: string;
+    amount_received: string;
+    change_due: string;
+  } | null;
 }
 
 export interface DashboardMetric {

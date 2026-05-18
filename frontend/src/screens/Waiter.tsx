@@ -321,6 +321,30 @@ export function OrderDetailModal({ order, onClose, setRoute }: {
         </div>
       </div>
 
+      {/* Payment method */}
+      {order.payment && (
+        <div style={{ marginBottom: 14, padding: "10px 14px", background: "var(--bg-canvas)", borderRadius: "var(--r)", display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>Метод оплаты</div>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>
+              {{ cash: "Наличные", card: "Карта", mixed: "Смешанный", external: "Внешний" }[order.payment.method] ?? order.payment.method}
+            </div>
+          </div>
+          {order.payment.method === "cash" && parseFloat(order.payment.change_due) > 0 && (
+            <>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>Получено</div>
+                <div style={{ fontWeight: 600, fontSize: 13 }} className="num">{fmtKZT(order.payment.amount_received)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>Сдача</div>
+                <div style={{ fontWeight: 600, fontSize: 13 }} className="num">{fmtKZT(order.payment.change_due)}</div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Events log */}
       {order.events.length > 0 && (
         <div>

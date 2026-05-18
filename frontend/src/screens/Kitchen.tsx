@@ -272,9 +272,6 @@ export function KitchenDisplay() {
           Готово сегодня: <b className="num" style={{ color: "var(--ink-1)" }}>{readyToday}</b>
         </span>
         <div className="conn"><span className="dot" /> Live</div>
-        <button className="btn sm" onClick={refreshKitchenBoard}>
-          <Icon name="sort" /> Обновить
-        </button>
       </header>
 
       {cancelPending && (
@@ -462,9 +459,6 @@ export function KitchenHistory() {
           <div className="sub">Все заказы прошедшие через кухню</div>
         </div>
         <div className="actions">
-          <button className="btn sm" onClick={load} disabled={loading}>
-            <Icon name="sort" /> {loading ? "Загрузка..." : "Обновить"}
-          </button>
         </div>
       </div>
 
