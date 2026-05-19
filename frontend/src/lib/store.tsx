@@ -295,7 +295,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               dispatch({ type: "UPSERT_KITCHEN_ORDER", order: ev.order });
             }
           } else {
-            api.order(t, ev.order_id).then((order) => dispatch({ type: "UPSERT_ORDER", order })).catch(() => {});
+            api.order(t, ev.order_id).then((order) => {
+              dispatch({ type: "UPSERT_ORDER", order });
+              const r = loadUser()?.role;
+              if (r === "kitchen" || r === "manager") {
+                dispatch({ type: "UPSERT_KITCHEN_ORDER", order });
+              }
+            }).catch(() => {});
           }
           // Only refresh table overview when table occupancy may have changed
           const tableChangingEvents = ["order.created", "order.paid", "order.cancelled"];
@@ -502,6 +508,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Single round-trip: backend now returns the full updated order
     const order = await api.updateItemStatus(state.token, orderId, itemId, status);
     dispatch({ type: "UPSERT_ORDER", order });
+    dispatch({ type: "UPSERT_KITCHEN_ORDER", order });
   }, [state.token]);
 
   const openShift = useCallback(async (cash: number) => {
