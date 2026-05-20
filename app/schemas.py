@@ -114,6 +114,7 @@ class MenuItemBase(BaseModel):
     price: Decimal = Field(gt=0, decimal_places=2)
     preparation_time_minutes: int = Field(default=10, ge=1, le=240)
     is_available: bool = True
+    modifiers: list | None = None
 
 
 class MenuItemCreate(MenuItemBase):
@@ -128,11 +129,29 @@ class MenuItemUpdate(BaseModel):
     price: Decimal | None = Field(default=None, gt=0, decimal_places=2)
     preparation_time_minutes: int | None = Field(default=None, ge=1, le=240)
     is_available: bool | None = None
+    modifiers: list | None = None
 
 
 class MenuItemRead(MenuItemBase):
     id: int
     category: CategoryRead | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BulkAvailabilityUpdate(BaseModel):
+    item_ids: list[int] = Field(min_length=1)
+    is_available: bool
+
+
+class MenuItemPriceHistoryRead(BaseModel):
+    id: int
+    menu_item_id: int
+    old_price: Decimal
+    new_price: Decimal
+    changed_by_id: int
+    changed_by: "UserRead | None" = None
+    changed_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 

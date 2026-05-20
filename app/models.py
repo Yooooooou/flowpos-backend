@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -154,9 +154,25 @@ class MenuItem(Base):
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     preparation_time_minutes: Mapped[int] = mapped_column(Integer, default=10)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
+    modifiers: Mapped[list | None] = mapped_column(JSON, nullable=True, default=None)
 
     category: Mapped[MenuCategory] = relationship(back_populates="items")
     order_items: Mapped[list["OrderItem"]] = relationship(back_populates="menu_item")
+    price_history: Mapped[list["MenuItemPriceHistory"]] = relationship(back_populates="menu_item", cascade="all, delete-orphan")
+
+
+class MenuItemPriceHistory(Base):
+    __tablename__ = "menu_item_price_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    menu_item_id: Mapped[int] = mapped_column(ForeignKey("menu_items.id"), index=True)
+    old_price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    new_price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    changed_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    menu_item: Mapped["MenuItem"] = relationship(back_populates="price_history")
+    changed_by: Mapped["User"] = relationship()
 
 
 class Order(Base):

@@ -49,6 +49,11 @@ export interface Category {
   is_active: boolean;
 }
 
+export interface ModifierGroup {
+  name: string;
+  options: string[];
+}
+
 export interface MenuItem {
   id: number;
   category_id: number;
@@ -58,7 +63,18 @@ export interface MenuItem {
   price: string;
   preparation_time_minutes: number;
   is_available: boolean;
+  modifiers: ModifierGroup[] | null;
   category?: Category | null;
+}
+
+export interface MenuItemPriceHistory {
+  id: number;
+  menu_item_id: number;
+  old_price: string;
+  new_price: string;
+  changed_by_id: number;
+  changed_by?: { id: number; full_name: string } | null;
+  changed_at: string;
 }
 
 export interface OrderItemInput {

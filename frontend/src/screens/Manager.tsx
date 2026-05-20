@@ -5,6 +5,8 @@ import type {
   AnalyticsSummary,
   Category,
   MenuItem,
+  MenuItemPriceHistory,
+  ModifierGroup,
   Order,
   OrderStatus,
   Shift,
@@ -860,144 +862,430 @@ export function ManagerOrders() {
 
 // ─── Manager Menu ─────────────────────────────────────────────────────────────
 
+function ModOptionInput({ onAdd }: { onAdd: (opt: string) => void }) {
+  const [val, setVal] = useState("");
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      <input className="input" placeholder="+ опция" style={{ width: 90, padding: "2px 6px", fontSize: 12 }}
+        value={val} onChange={e => setVal(e.target.value)}
+        onKeyDown={e => { if (e.key === "Enter" && val.trim()) { onAdd(val.trim()); setVal(""); } }} />
+      <button className="btn sm" style={{ padding: "2px 6px" }}
+        onClick={() => { if (val.trim()) { onAdd(val.trim()); setVal(""); } }}>+</button>
+    </span>
+  );
+}
+
 export function ManagerMenu() {
   const { state, refreshMenu, toast } = useApp();
   const token = state.token!;
+
+  // Category state
   const [activeCat, setActiveCat] = useState<number | undefined>(state.categories[0]?.id);
+  const [editCatId, setEditCatId] = useState<number | null>(null);
+  const [editCatName, setEditCatName] = useState("");
+  const [showNewCat, setShowNewCat] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+
+  // Item state
+  const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
+  const [itemSearch, setItemSearch] = useState("");
   const [editItem, setEditItem] = useState<MenuItem | null>(null);
-  const [newItem, setNewItem] = useState(false);
+  const [showNewItem, setShowNewItem] = useState(false);
   const [form, setForm] = useState<Partial<MenuItem>>({});
 
-  const items = state.items.filter(i => i.category_id === activeCat);
+  // Price history
+  const [priceHistoryItem, setPriceHistoryItem] = useState<MenuItem | null>(null);
+  const [priceHistory, setPriceHistory] = useState<MenuItemPriceHistory[]>([]);
+  const [phLoading, setPhLoading] = useState(false);
 
-  const closeForm = () => { setEditItem(null); setNewItem(false); };
+  // CSV import
+  const [importModal, setImportModal] = useState(false);
+  const [importRows, setImportRows] = useState<Array<{ name: string; price: string; description: string; prep: string; error?: string }>>([]);
+  const [importProgress, setImportProgress] = useState("");
 
-  const save = async () => {
+  useEffect(() => {
+    if (!activeCat && state.categories.length > 0) setActiveCat(state.categories[0].id);
+  }, [state.categories]);
+
+  const cats = [...state.categories].sort((a, b) => a.sort_order - b.sort_order);
+  const items = state.items.filter(i =>
+    i.category_id === activeCat &&
+    (!itemSearch || i.name.toLowerCase().includes(itemSearch.toLowerCase()))
+  );
+
+  // ── Category actions ──────────────────────────────────────────────────────
+
+  const reorderCat = async (cat: Category, dir: "up" | "down") => {
+    const idx = cats.findIndex(c => c.id === cat.id);
+    const swapIdx = dir === "up" ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= cats.length) return;
+    const other = cats[swapIdx];
+    try {
+      await Promise.all([
+        api.updateCategory(token, cat.id, { sort_order: other.sort_order }),
+        api.updateCategory(token, other.id, { sort_order: cat.sort_order }),
+      ]);
+      await refreshMenu();
+    } catch { toast("error", "Ошибка изменения порядка"); }
+  };
+
+  const saveCatEdit = async (catId: number) => {
+    if (!editCatName.trim()) return;
+    try {
+      await api.updateCategory(token, catId, { name: editCatName.trim() });
+      toast("success", "Категория обновлена");
+      setEditCatId(null);
+      await refreshMenu();
+    } catch (e: unknown) { toast("error", e instanceof Error ? e.message : "Ошибка"); }
+  };
+
+  const saveNewCat = async () => {
+    if (!newCatName.trim()) return;
+    const maxOrder = Math.max(0, ...cats.map(c => c.sort_order));
+    try {
+      const created = await api.createCategory(token, { name: newCatName.trim(), sort_order: maxOrder + 10 });
+      setShowNewCat(false); setNewCatName("");
+      await refreshMenu();
+      setActiveCat(created.id);
+      toast("success", "Категория добавлена");
+    } catch (e: unknown) { toast("error", e instanceof Error ? e.message : "Ошибка"); }
+  };
+
+  const deleteCat = async (cat: Category) => {
+    const cnt = state.items.filter(i => i.category_id === cat.id).length;
+    if (cnt > 0) { toast("error", `В категории ${cnt} блюд — сначала удалите или переместите их`); return; }
+    try {
+      await api.deleteCategory(token, cat.id);
+      if (activeCat === cat.id) setActiveCat(cats.find(c => c.id !== cat.id)?.id);
+      await refreshMenu();
+      toast("success", "Категория удалена");
+    } catch (e: unknown) { toast("error", e instanceof Error ? e.message : "Ошибка"); }
+  };
+
+  // ── Item actions ──────────────────────────────────────────────────────────
+
+  const openItemForm = (item?: MenuItem) => {
+    if (item) { setForm({ ...item, modifiers: item.modifiers ?? [] }); setEditItem(item); setShowNewItem(false); }
+    else { setForm({ category_id: activeCat, is_available: true, preparation_time_minutes: 10, modifiers: [] }); setShowNewItem(true); setEditItem(null); }
+  };
+  const closeItemForm = () => { setEditItem(null); setShowNewItem(false); };
+
+  const saveItem = async () => {
     try {
       if (editItem) {
         await api.updateMenuItem(token, editItem.id, {
           name: form.name, price: form.price, description: form.description ?? undefined,
           is_available: form.is_available, preparation_time_minutes: form.preparation_time_minutes,
+          category_id: form.category_id, modifiers: (form.modifiers ?? []) as unknown[],
         });
         toast("success", "Блюдо обновлено");
       } else {
         await api.createMenuItem(token, {
-          category_id: activeCat!,
-          name: form.name!,
-          price: form.price!,
-          description: form.description ?? undefined,
-          preparation_time_minutes: form.preparation_time_minutes,
+          category_id: activeCat!, name: form.name!, price: form.price!,
+          description: form.description ?? undefined, preparation_time_minutes: form.preparation_time_minutes,
+          modifiers: (form.modifiers ?? []) as unknown[],
         });
         toast("success", "Блюдо добавлено");
       }
+      await refreshMenu(); closeItemForm();
+    } catch (e: unknown) { toast("error", e instanceof Error ? e.message : "Ошибка"); }
+  };
+
+  const deleteItem = async (item: MenuItem) => {
+    try {
+      await api.deleteMenuItem(token, item.id);
+      toast("success", "Блюдо удалено");
       await refreshMenu();
-      closeForm();
     } catch (e: unknown) {
-      toast("error", e instanceof Error ? e.message : "Ошибка");
+      const msg = e instanceof Error ? e.message : "Ошибка";
+      toast("error", msg.includes("order history") ? "Есть история заказов — снимите флаг «Доступно»" : msg);
     }
   };
 
+  const handleBulkAvailability = async (val: boolean) => {
+    const ids = Array.from(selectedItems);
+    if (!ids.length) return;
+    try {
+      await api.bulkItemAvailability(token, ids, val);
+      toast("success", `${ids.length} блюд обновлено`);
+      setSelectedItems(new Set()); await refreshMenu();
+    } catch { toast("error", "Ошибка массового обновления"); }
+  };
+
+  const loadPriceHistory = async (item: MenuItem) => {
+    setPriceHistoryItem(item); setPhLoading(true);
+    try { setPriceHistory(await api.menuItemPriceHistory(token, item.id)); }
+    catch { setPriceHistory([]); }
+    finally { setPhLoading(false); }
+  };
+
+  // ── CSV ───────────────────────────────────────────────────────────────────
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const text = (ev.target?.result ?? "") as string;
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) { toast("error", "Файл пустой"); return; }
+      const dataLines = (lines[0].toLowerCase().includes("name") || lines[0].toLowerCase().includes("назв")) ? lines.slice(1) : lines;
+      setImportRows(dataLines.map(line => {
+        const [name = "", price = "", description = "", prep = "10"] = line.split(",").map(s => s.replace(/^"|"$/g, "").trim());
+        return { name, price, description, prep: prep || "10", error: !name ? "Нет названия" : (!price || isNaN(parseFloat(price))) ? "Некорректная цена" : undefined };
+      }));
+      setImportModal(true);
+    };
+    reader.readAsText(file, "utf-8");
+    e.target.value = "";
+  };
+
+  const executeImport = async () => {
+    const valid = importRows.filter(r => !r.error);
+    let ok = 0, fail = 0;
+    for (const row of valid) {
+      try {
+        await api.createMenuItem(token, { category_id: activeCat!, name: row.name, price: row.price, description: row.description || undefined, preparation_time_minutes: parseInt(row.prep) || 10 });
+        ok++; setImportProgress(`Создано ${ok} / ${valid.length}...`);
+      } catch { fail++; }
+    }
+    await refreshMenu();
+    toast(fail === 0 ? "success" : "error", `Импортировано ${ok}, ошибок ${fail}`);
+    setImportModal(false); setImportRows([]); setImportProgress("");
+  };
+
+  const exportCSV = () => {
+    const rows = [
+      ["Название", "Цена", "Описание", "Время (мин)", "Доступно"].join(","),
+      ...items.map(i => [`"${i.name}"`, parseFloat(i.price).toFixed(2), `"${i.description ?? ""}"`, i.preparation_time_minutes, i.is_available ? "1" : "0"].join(",")),
+    ].join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["﻿" + rows], { type: "text/csv;charset=utf-8;" }));
+    a.download = `menu_${cats.find(c => c.id === activeCat)?.name ?? "export"}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+  };
+
+  // ── Modifier helpers ──────────────────────────────────────────────────────
+
+  const mods = (form.modifiers ?? []) as ModifierGroup[];
+  const addModGroup = () => setForm(f => ({ ...f, modifiers: [...mods, { name: "", options: [] }] }));
+  const updateModGroup = (gi: number, val: string) => { const m = [...mods]; m[gi] = { ...m[gi], name: val }; setForm(f => ({ ...f, modifiers: m })); };
+  const removeModGroup = (gi: number) => setForm(f => ({ ...f, modifiers: mods.filter((_, i) => i !== gi) }));
+  const addModOption = (gi: number, opt: string) => { const m = [...mods]; m[gi] = { ...m[gi], options: [...m[gi].options, opt] }; setForm(f => ({ ...f, modifiers: m })); };
+  const removeModOption = (gi: number, oi: number) => { const m = [...mods]; m[gi] = { ...m[gi], options: m[gi].options.filter((_, i) => i !== oi) }; setForm(f => ({ ...f, modifiers: m })); };
+
+  const allSelected = items.length > 0 && items.every(i => selectedItems.has(i.id));
+
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
-      {/* Category rail */}
-      <div style={{ width: 200, borderRight: "1px solid var(--line-1)", overflow: "auto", background: "var(--bg-paper)", padding: "12px 0" }}>
-        {state.categories.map(c => (
-          <button
-            key={c.id}
-            onClick={() => setActiveCat(c.id)}
-            style={{
-              width: "100%",
-              padding: "10px 16px",
-              textAlign: "left",
-              background: activeCat === c.id ? "var(--brand-50)" : "none",
-              border: 0,
-              borderLeft: `3px solid ${activeCat === c.id ? "var(--brand)" : "transparent"}`,
-              cursor: "pointer",
-              color: activeCat === c.id ? "var(--brand-700)" : "var(--ink-1)",
-              fontWeight: activeCat === c.id ? 600 : 400,
-              fontSize: 13,
-            }}
-          >
-            {c.name}
-            <span style={{ marginLeft: 6, fontSize: 11, opacity: 0.6 }}>{state.items.filter(i => i.category_id === c.id).length}</span>
-          </button>
-        ))}
-      </div>
 
-      {/* Items table */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line-1)", display: "flex", gap: 8 }}>
-          <button className="btn primary sm" onClick={() => { setForm({ category_id: activeCat, is_available: true }); setNewItem(true); setEditItem(null); }}>
-            <Icon name="plus" /> Добавить блюдо
-          </button>
-          <button className="btn sm" style={{ marginLeft: "auto" }} onClick={refreshMenu}><Icon name="sort" /> Обновить</button>
-        </div>
+      {/* ── Category rail ── */}
+      <div style={{ width: 224, borderRight: "1px solid var(--line-1)", display: "flex", flexDirection: "column", background: "var(--bg-paper)", flexShrink: 0 }}>
+        <div style={{ padding: "9px 12px", borderBottom: "1px solid var(--line-1)", fontSize: 11, fontWeight: 700, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Категории</div>
         <div style={{ flex: 1, overflow: "auto" }}>
-          <div className="list-head" style={{ gridTemplateColumns: "1.5fr 2fr 100px 70px 80px 50px" }}>
-            <div>Название</div><div>Описание</div><div>Цена</div><div>Время</div><div>Доступно</div><div></div>
-          </div>
-          {items.map(item => (
-            <div key={item.id} className="list-row" style={{ gridTemplateColumns: "1.5fr 2fr 100px 70px 80px 50px" }}>
-              <div style={{ fontWeight: 500 }}>{item.name}</div>
-              <div style={{ fontSize: 12, color: "var(--ink-3)" }}>{item.description ?? "—"}</div>
-              <div className="num">{fmtKZT(item.price)}</div>
-              <div style={{ color: "var(--ink-3)" }}>{item.preparation_time_minutes}м</div>
-              <div>
-                <span style={{ color: item.is_available ? "var(--olive)" : "var(--red)", fontWeight: 600, fontSize: 12 }}>
-                  {item.is_available ? "Да" : "Нет"}
+          {cats.map((c, idx) => (
+            <div key={c.id}
+              style={{ display: "flex", alignItems: "center", gap: 2, padding: "6px 8px 6px 10px", background: activeCat === c.id ? "var(--brand-50,#eff6ff)" : "transparent", borderLeft: `3px solid ${activeCat === c.id ? "var(--brand)" : "transparent"}`, cursor: "pointer" }}
+              onClick={() => { setActiveCat(c.id); setSelectedItems(new Set()); }}
+            >
+              {editCatId === c.id ? (
+                <input className="input" style={{ flex: 1, padding: "2px 6px", fontSize: 13, height: 26 }}
+                  value={editCatName} autoFocus onChange={e => setEditCatName(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") saveCatEdit(c.id); if (e.key === "Escape") setEditCatId(null); }}
+                  onClick={e => e.stopPropagation()} />
+              ) : (
+                <span style={{ flex: 1, fontSize: 13, fontWeight: activeCat === c.id ? 600 : 400, color: activeCat === c.id ? "var(--brand)" : "var(--ink-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {c.name} <span style={{ opacity: 0.5, fontSize: 11 }}>{state.items.filter(i => i.category_id === c.id).length}</span>
                 </span>
-              </div>
-              <div>
-                <button className="iconbtn borderless" onClick={() => { setForm({ ...item }); setEditItem(item); setNewItem(false); }}>
-                  <Icon name="edit" size={15} />
-                </button>
+              )}
+              <div style={{ display: "flex", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                <button className="iconbtn borderless" style={{ padding: "2px 3px", opacity: idx === 0 ? 0.25 : 1, fontSize: 10 }} onClick={() => reorderCat(c, "up")} disabled={idx === 0}>▲</button>
+                <button className="iconbtn borderless" style={{ padding: "2px 3px", opacity: idx === cats.length - 1 ? 0.25 : 1, fontSize: 10 }} onClick={() => reorderCat(c, "down")} disabled={idx === cats.length - 1}>▼</button>
+                <button className="iconbtn borderless" style={{ padding: "2px 3px" }} onClick={() => { setEditCatId(c.id); setEditCatName(c.name); }}><Icon name="edit" size={12} /></button>
+                <button className="iconbtn borderless" style={{ padding: "2px 3px", color: "var(--red)" }} onClick={() => deleteCat(c)}><Icon name="close" size={12} /></button>
               </div>
             </div>
           ))}
-          {items.length === 0 && (
-            <div style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}>В этой категории нет блюд</div>
+        </div>
+        <div style={{ padding: "8px 10px", borderTop: "1px solid var(--line-1)" }}>
+          {showNewCat ? (
+            <div style={{ display: "flex", gap: 4 }}>
+              <input className="input" style={{ flex: 1, padding: "4px 8px", fontSize: 13 }} value={newCatName} autoFocus placeholder="Название"
+                onChange={e => setNewCatName(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") saveNewCat(); if (e.key === "Escape") { setShowNewCat(false); setNewCatName(""); } }} />
+              <button className="btn sm primary" onClick={saveNewCat}>OK</button>
+            </div>
+          ) : (
+            <button className="btn sm" style={{ width: "100%" }} onClick={() => setShowNewCat(true)}><Icon name="plus" size={13} /> Добавить</button>
           )}
         </div>
       </div>
 
-      {(editItem || newItem) && (
-        <Modal
-          title={editItem ? "Редактировать блюдо" : "Новое блюдо"}
-          onClose={closeForm}
-          footer={
+      {/* ── Items area ── */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {/* Toolbar */}
+        <div style={{ padding: "8px 14px", borderBottom: "1px solid var(--line-1)", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          {selectedItems.size > 0 ? (
             <>
-              <button className="btn ghost" onClick={closeForm}>Отмена</button>
-              <button className="btn primary" onClick={save}>Сохранить</button>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--brand)" }}>Выбрано: {selectedItems.size}</span>
+              <button className="btn sm success" onClick={() => handleBulkAvailability(true)}>Включить</button>
+              <button className="btn sm danger" onClick={() => handleBulkAvailability(false)}>Выключить</button>
+              <button className="btn sm ghost" onClick={() => setSelectedItems(new Set())}>Снять</button>
             </>
-          }
-        >
+          ) : (
+            <>
+              <button className="btn primary sm" onClick={() => openItemForm()} disabled={!activeCat}><Icon name="plus" /> Добавить блюдо</button>
+              <div style={{ position: "relative" }}>
+                <input className="input" placeholder="Поиск..." value={itemSearch} onChange={e => setItemSearch(e.target.value)} style={{ width: 180, paddingLeft: 28, fontSize: 13 }} />
+                <Icon name="search" size={12} style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", color: "var(--ink-4)" }} />
+              </div>
+            </>
+          )}
+          <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+            <label className="btn sm" style={{ cursor: "pointer" }}>
+              <Icon name="sort" /> Импорт CSV
+              <input type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={handleFileSelect} disabled={!activeCat} />
+            </label>
+            <button className="btn sm" onClick={exportCSV} disabled={items.length === 0}><Icon name="analytics" /> Экспорт CSV</button>
+          </div>
+        </div>
+
+        {/* Table */}
+        <div style={{ flex: 1, overflow: "auto" }}>
+          <div className="list-head" style={{ gridTemplateColumns: "36px 1.8fr 1.5fr 100px 56px 76px 90px" }}>
+            <div><input type="checkbox" checked={allSelected} onChange={e => { if (e.target.checked) setSelectedItems(new Set(items.map(i => i.id))); else setSelectedItems(new Set()); }} /></div>
+            <div>Название</div><div>Описание</div><div>Цена</div><div>Мин</div><div>Доступно</div><div></div>
+          </div>
+          {items.map(item => (
+            <div key={item.id} className="list-row" style={{ gridTemplateColumns: "36px 1.8fr 1.5fr 100px 56px 76px 90px" }}>
+              <div onClick={e => e.stopPropagation()}>
+                <input type="checkbox" checked={selectedItems.has(item.id)} onChange={e => { const s = new Set(selectedItems); e.target.checked ? s.add(item.id) : s.delete(item.id); setSelectedItems(s); }} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 500 }}>{item.name}</div>
+                {item.modifiers && item.modifiers.length > 0 && (
+                  <div style={{ fontSize: 11, color: "var(--brand)", marginTop: 1 }}>{item.modifiers.map(m => m.name).join(" · ")}</div>
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--ink-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.description ?? "—"}</div>
+              <div className="num">{fmtKZT(item.price)}</div>
+              <div style={{ color: "var(--ink-3)" }}>{item.preparation_time_minutes}м</div>
+              <div><span style={{ color: item.is_available ? "var(--olive)" : "var(--red)", fontWeight: 600, fontSize: 12 }}>{item.is_available ? "Да" : "Нет"}</span></div>
+              <div style={{ display: "flex", gap: 2 }}>
+                <button className="iconbtn borderless" title="Редактировать" onClick={() => openItemForm(item)}><Icon name="edit" size={14} /></button>
+                <button className="iconbtn borderless" title="История цен" onClick={() => loadPriceHistory(item)}><Icon name="clock" size={14} /></button>
+                <button className="iconbtn borderless" title="Удалить" style={{ color: "var(--red)" }} onClick={() => deleteItem(item)}><Icon name="close" size={14} /></button>
+              </div>
+            </div>
+          ))}
+          {items.length === 0 && <div style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}>{!activeCat ? "Выберите категорию" : itemSearch ? "Ничего не найдено" : "В этой категории нет блюд"}</div>}
+        </div>
+      </div>
+
+      {/* ── Item form modal ── */}
+      {(editItem || showNewItem) && (
+        <Modal title={editItem ? "Редактировать блюдо" : "Новое блюдо"} onClose={closeItemForm} width={580}
+          footer={<><button className="btn ghost" onClick={closeItemForm}>Отмена</button><button className="btn primary" onClick={saveItem}>Сохранить</button></>}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div className="field">
-              <label className="field-label">Название</label>
-              <input className="input" value={form.name ?? ""} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            <div className="field"><label className="field-label">Название</label>
+              <input className="input" value={form.name ?? ""} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>
+            <div className="field"><label className="field-label">Описание</label>
+              <textarea className="textarea" value={form.description ?? ""} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={2} /></div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+              <div className="field"><label className="field-label">Цена (₸)</label>
+                <input className="input" type="number" min={1} value={form.price ?? ""} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} /></div>
+              <div className="field"><label className="field-label">Время (мин)</label>
+                <input className="input" type="number" min={1} value={form.preparation_time_minutes ?? ""} onChange={e => setForm(f => ({ ...f, preparation_time_minutes: parseInt(e.target.value) || 10 }))} /></div>
+              <div className="field"><label className="field-label">Категория</label>
+                <select className="select" value={form.category_id ?? activeCat} onChange={e => setForm(f => ({ ...f, category_id: Number(e.target.value) }))}>
+                  {cats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
             </div>
-            <div className="field">
-              <label className="field-label">Описание</label>
-              <textarea className="textarea" value={form.description ?? ""} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={2} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "end" }}>
+              <div className="field"><label className="field-label">Штрих-код</label>
+                <input className="input" value={form.barcode ?? ""} placeholder="Необязательно" onChange={e => setForm(f => ({ ...f, barcode: e.target.value || null }))} /></div>
+              <div className="field"><label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", paddingBottom: 8 }}>
+                <input type="checkbox" checked={form.is_available ?? true} onChange={e => setForm(f => ({ ...f, is_available: e.target.checked }))} />
+                <span style={{ fontSize: 13 }}>Доступно</span></label></div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div className="field">
-                <label className="field-label">Цена (₸)</label>
-                <input className="input" type="number" value={form.price ?? ""} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} />
+
+            {/* Modifiers */}
+            <div style={{ borderTop: "1px solid var(--line-1)", paddingTop: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>Модификаторы</span>
+                <button className="btn sm" onClick={addModGroup}><Icon name="plus" size={12} /> Группа</button>
               </div>
-              <div className="field">
-                <label className="field-label">Время готовки (мин)</label>
-                <input className="input" type="number" value={form.preparation_time_minutes ?? ""} onChange={e => setForm(f => ({ ...f, preparation_time_minutes: parseInt(e.target.value) || 0 }))} />
-              </div>
+              {mods.length === 0 && <div style={{ fontSize: 12, color: "var(--ink-4)" }}>Нет модификаторов. Добавьте группу (напр. Размер → S, M, L).</div>}
+              {mods.map((group, gi) => (
+                <div key={gi} style={{ marginBottom: 10, padding: 10, border: "1px solid var(--line-1)", borderRadius: "var(--r)", background: "var(--bg-sunken)" }}>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                    <input className="input" placeholder="Название группы (напр. Размер)" style={{ flex: 1, fontSize: 13 }}
+                      value={group.name} onChange={e => updateModGroup(gi, e.target.value)} />
+                    <button className="iconbtn borderless" style={{ color: "var(--red)" }} onClick={() => removeModGroup(gi)}><Icon name="close" size={13} /></button>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                    {group.options.map((opt, oi) => (
+                      <span key={oi} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", background: "var(--bg-paper)", border: "1px solid var(--line-1)", borderRadius: 999, fontSize: 12 }}>
+                        {opt}
+                        <button style={{ border: 0, background: "none", cursor: "pointer", color: "var(--ink-4)", padding: 0, lineHeight: 1, fontSize: 14 }} onClick={() => removeModOption(gi, oi)}>×</button>
+                      </span>
+                    ))}
+                    <ModOptionInput onAdd={opt => addModOption(gi, opt)} />
+                  </div>
+                </div>
+              ))}
             </div>
-            {editItem && (
-              <div className="field">
-                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                  <input type="checkbox" checked={form.is_available ?? true} onChange={e => setForm(f => ({ ...f, is_available: e.target.checked }))} />
-                  <span>Доступно для заказа</span>
-                </label>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Price history modal ── */}
+      {priceHistoryItem && (
+        <Modal title={`История цен · ${priceHistoryItem.name}`} onClose={() => setPriceHistoryItem(null)} width={480}
+          footer={<button className="btn ghost" onClick={() => setPriceHistoryItem(null)}>Закрыть</button>}>
+          {phLoading
+            ? <div style={{ padding: 40, textAlign: "center" }}><span className="spin" /></div>
+            : priceHistory.length === 0
+            ? <div style={{ padding: 24, textAlign: "center", color: "var(--ink-3)" }}>История изменений цены отсутствует</div>
+            : <div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", padding: "7px 12px", fontSize: 11, color: "var(--ink-4)", fontWeight: 700, textTransform: "uppercase", background: "var(--bg-sunken)", borderRadius: "var(--r) var(--r) 0 0" }}>
+                  <div>Старая цена</div><div>Новая цена</div><div>Кто изменил</div><div>Когда</div>
+                </div>
+                {priceHistory.map(h => (
+                  <div key={h.id} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", padding: "8px 12px", borderTop: "1px solid var(--line-1)", fontSize: 13 }}>
+                    <div style={{ color: "var(--red)", textDecoration: "line-through" }}>{fmtKZT(h.old_price)}</div>
+                    <div style={{ color: "var(--olive)", fontWeight: 600 }}>{fmtKZT(h.new_price)}</div>
+                    <div style={{ color: "var(--ink-3)", fontSize: 12 }}>{h.changed_by?.full_name ?? `#${h.changed_by_id}`}</div>
+                    <div style={{ color: "var(--ink-4)", fontSize: 11 }}>{new Date(h.changed_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</div>
+                  </div>
+                ))}
+              </div>}
+        </Modal>
+      )}
+
+      {/* ── CSV import modal ── */}
+      {importModal && (
+        <Modal title="Импорт меню из CSV" onClose={() => { setImportModal(false); setImportRows([]); }} width={560}
+          footer={<>
+            <button className="btn ghost" onClick={() => { setImportModal(false); setImportRows([]); }}>Отмена</button>
+            <button className="btn primary" disabled={!importRows.filter(r => !r.error).length || !!importProgress} onClick={executeImport}>
+              {importProgress || `Импортировать ${importRows.filter(r => !r.error).length} блюд`}
+            </button>
+          </>}>
+          <div style={{ marginBottom: 10, fontSize: 12, color: "var(--ink-3)", padding: "8px 12px", background: "var(--bg-sunken)", borderRadius: "var(--r)" }}>
+            Формат: <code>Название, Цена, Описание, Время(мин)</code> — первая строка может быть заголовком.
+          </div>
+          <div style={{ maxHeight: 300, overflow: "auto" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 80px 1.5fr 56px 70px", padding: "6px 10px", fontSize: 11, color: "var(--ink-4)", fontWeight: 700, textTransform: "uppercase", background: "var(--bg-sunken)" }}>
+              <div>Название</div><div>Цена</div><div>Описание</div><div>Мин</div><div>Статус</div>
+            </div>
+            {importRows.map((r, i) => (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "1.5fr 80px 1.5fr 56px 70px", padding: "6px 10px", borderTop: "1px solid var(--line-1)", fontSize: 12, background: r.error ? "rgba(239,68,68,0.04)" : undefined }}>
+                <div>{r.name || <span style={{ color: "var(--ink-4)" }}>—</span>}</div>
+                <div className="num">{r.price}</div>
+                <div style={{ color: "var(--ink-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.description || "—"}</div>
+                <div style={{ color: "var(--ink-3)" }}>{r.prep}</div>
+                <div style={{ fontSize: 11, color: r.error ? "var(--red)" : "var(--olive)", fontWeight: 600 }}>{r.error ?? "OK"}</div>
               </div>
-            )}
+            ))}
           </div>
         </Modal>
       )}

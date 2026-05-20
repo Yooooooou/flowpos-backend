@@ -468,10 +468,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         status: "paid" as const,
         paid_at: new Date().toISOString(),
         payment: {
+          id: payment.id,
           method: payment.method,
+          subtotal_amount: payment.subtotal_amount,
+          discount_amount: payment.discount_amount,
           final_amount: payment.final_amount,
           amount_received: payment.amount_received,
           change_due: payment.change_due,
+          created_at: payment.created_at,
+          created_by_id: payment.created_by_id,
         },
       },
     });

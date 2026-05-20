@@ -1,14 +1,29 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update as sa_update
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import get_db
 from app.deps import get_current_user, require_roles
-from app.models import MenuCategory, MenuItem, User, UserRole
-from app.schemas import CategoryCreate, CategoryRead, CategoryUpdate, MenuItemCreate, MenuItemRead, MenuItemUpdate
+from app.models import MenuCategory, MenuItem, MenuItemPriceHistory, OrderItem, User, UserRole
+from app.schemas import (
+    BulkAvailabilityUpdate,
+    CategoryCreate,
+    CategoryRead,
+    CategoryUpdate,
+    MenuItemCreate,
+    MenuItemPriceHistoryRead,
+    MenuItemRead,
+    MenuItemUpdate,
+)
 
 router = APIRouter(prefix="/menu", tags=["menu"])
 
+
+def _item_stmt():
+    return select(MenuItem).options(selectinload(MenuItem.category))
+
+
+# ─── Categories ───────────────────────────────────────────────────────────────
 
 @router.get("/categories", response_model=list[CategoryRead])
 def list_categories(
@@ -50,6 +65,27 @@ def update_category(
     return category
 
 
+@router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_category(
+    category_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.manager)),
+) -> None:
+    category = db.get(MenuCategory, category_id)
+    if category is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+    item_count = db.scalar(select(MenuItem).where(MenuItem.category_id == category_id).limit(1))
+    if item_count is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Category has menu items. Move or delete them first.",
+        )
+    db.delete(category)
+    db.commit()
+
+
+# ─── Items ────────────────────────────────────────────────────────────────────
+
 @router.get("/items", response_model=list[MenuItemRead])
 def list_items(
     available_only: bool = False,
@@ -58,7 +94,7 @@ def list_items(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ) -> list[MenuItem]:
-    stmt = select(MenuItem).options(selectinload(MenuItem.category)).order_by(MenuItem.name)
+    stmt = _item_stmt().order_by(MenuItem.name)
     if available_only:
         stmt = stmt.where(MenuItem.is_available.is_(True))
     if category_id is not None:
@@ -75,9 +111,7 @@ def get_item_by_barcode(
     _: User = Depends(get_current_user),
 ) -> MenuItem:
     item = db.scalar(
-        select(MenuItem)
-        .options(selectinload(MenuItem.category))
-        .where(MenuItem.barcode == barcode, MenuItem.is_available.is_(True))
+        _item_stmt().where(MenuItem.barcode == barcode, MenuItem.is_available.is_(True))
     )
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Available menu item not found")
@@ -99,21 +133,82 @@ def create_item(
     return item
 
 
+@router.patch("/items/bulk-availability", response_model=dict)
+def bulk_availability(
+    payload: BulkAvailabilityUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.manager)),
+) -> dict:
+    db.execute(
+        sa_update(MenuItem)
+        .where(MenuItem.id.in_(payload.item_ids))
+        .values(is_available=payload.is_available)
+    )
+    db.commit()
+    return {"updated": len(payload.item_ids)}
+
+
 @router.patch("/items/{item_id}", response_model=MenuItemRead)
 def update_item(
     item_id: int,
     payload: MenuItemUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.manager)),
+    current_user: User = Depends(require_roles(UserRole.manager)),
 ) -> MenuItem:
-    item = db.get(MenuItem, item_id)
+    item = db.scalar(_item_stmt().where(MenuItem.id == item_id))
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Menu item not found")
     data = payload.model_dump(exclude_unset=True)
     if "category_id" in data and db.get(MenuCategory, data["category_id"]) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+    # Track price change
+    if "price" in data and data["price"] != item.price:
+        db.add(MenuItemPriceHistory(
+            menu_item_id=item.id,
+            old_price=item.price,
+            new_price=data["price"],
+            changed_by_id=current_user.id,
+        ))
     for key, value in data.items():
         setattr(item, key, value)
     db.commit()
     db.refresh(item)
-    return item
+    return db.scalar(_item_stmt().where(MenuItem.id == item.id))
+
+
+@router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.manager)),
+) -> None:
+    item = db.get(MenuItem, item_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Menu item not found")
+    in_orders = db.scalar(select(OrderItem).where(OrderItem.menu_item_id == item_id).limit(1))
+    if in_orders is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Item has order history. Set is_available=false instead of deleting.",
+        )
+    db.delete(item)
+    db.commit()
+
+
+@router.get("/items/{item_id}/price-history", response_model=list[MenuItemPriceHistoryRead])
+def get_price_history(
+    item_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.manager)),
+) -> list[MenuItemPriceHistory]:
+    if db.get(MenuItem, item_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Menu item not found")
+    return list(
+        db.scalars(
+            select(MenuItemPriceHistory)
+            .options(selectinload(MenuItemPriceHistory.changed_by))
+            .where(MenuItemPriceHistory.menu_item_id == item_id)
+            .order_by(MenuItemPriceHistory.changed_at.desc())
+            .limit(50)
+        )
+    )

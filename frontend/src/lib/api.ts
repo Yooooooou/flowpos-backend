@@ -3,6 +3,7 @@ import type {
   Category,
   KitchenBoard,
   MenuItem,
+  MenuItemPriceHistory,
   OfflineDraftOrder,
   Order,
   OrderDiscount,
@@ -197,11 +198,23 @@ export const api = {
   updateCategory(token: string, catId: number, payload: Partial<{ name: string; sort_order: number; is_active: boolean }>) {
     return request<Category>(`/menu/categories/${catId}`, { method: "PATCH", body: JSON.stringify(payload) }, token);
   },
-  createMenuItem(token: string, payload: { category_id: number; name: string; price: string; preparation_time_minutes?: number; description?: string; barcode?: string }) {
+  deleteCategory(token: string, catId: number) {
+    return request<void>(`/menu/categories/${catId}`, { method: "DELETE" }, token);
+  },
+  createMenuItem(token: string, payload: { category_id: number; name: string; price: string; preparation_time_minutes?: number; description?: string; barcode?: string; modifiers?: unknown[] }) {
     return request<MenuItem>("/menu/items", { method: "POST", body: JSON.stringify(payload) }, token);
   },
-  updateMenuItem(token: string, itemId: number, payload: Partial<{ name: string; price: string; description: string; is_available: boolean; category_id: number; preparation_time_minutes: number }>) {
+  updateMenuItem(token: string, itemId: number, payload: Partial<{ name: string; price: string; description: string; is_available: boolean; category_id: number; preparation_time_minutes: number; modifiers: unknown[] | null }>) {
     return request<MenuItem>(`/menu/items/${itemId}`, { method: "PATCH", body: JSON.stringify(payload) }, token);
+  },
+  deleteMenuItem(token: string, itemId: number) {
+    return request<void>(`/menu/items/${itemId}`, { method: "DELETE" }, token);
+  },
+  bulkItemAvailability(token: string, itemIds: number[], isAvailable: boolean) {
+    return request<{ updated: number }>("/menu/items/bulk-availability", { method: "PATCH", body: JSON.stringify({ item_ids: itemIds, is_available: isAvailable }) }, token);
+  },
+  menuItemPriceHistory(token: string, itemId: number) {
+    return request<MenuItemPriceHistory[]>(`/menu/items/${itemId}/price-history`, {}, token);
   },
 
   // Payments
