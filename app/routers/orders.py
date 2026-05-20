@@ -11,6 +11,7 @@ from app.models import (
     CafeTable,
     MenuItem,
     Order,
+    OrderDiscount,
     OrderEvent,
     OrderItem,
     OrderPriority,
@@ -211,7 +212,10 @@ def list_orders(
     table_id: int | None = None,
     waiter_id: int | None = None,
     q: str | None = None,
-    limit: int = Query(default=100, ge=1, le=200),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
     include_completed: bool = Query(default=False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -221,7 +225,6 @@ def list_orders(
         stmt = stmt.where(Order.waiter_id == current_user.id)
     elif current_user.role == UserRole.kitchen:
         if include_completed:
-            # History view: orders kitchen touched (reached ready) OR explicitly cancelled
             stmt = stmt.where(
                 (Order.ready_at.isnot(None)) | (Order.status == OrderStatus.cancelled)
             )
@@ -241,7 +244,20 @@ def list_orders(
         stmt = stmt.join(Order.table).where(
             Order.customer_note.ilike(f"%{q.strip()}%") | CafeTable.number.ilike(f"%{q.strip()}%")
         )
-    stmt = stmt.limit(limit)
+    if date_from:
+        try:
+            dt_from = datetime.fromisoformat(date_from).replace(tzinfo=timezone.utc)
+            stmt = stmt.where(Order.created_at >= dt_from)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt_to = datetime.fromisoformat(date_to)
+            dt_to = dt_to.replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+            stmt = stmt.where(Order.created_at <= dt_to)
+        except ValueError:
+            pass
+    stmt = stmt.limit(limit).offset(offset)
     return list(db.scalars(stmt))
 
 
@@ -342,10 +358,22 @@ async def update_order(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     if not _can_manage_order(current_user, order):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot edit this order")
-    if order.status not in {OrderStatus.pending, OrderStatus.in_progress}:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Order can no longer be edited")
 
     data = payload.model_dump(exclude_unset=True)
+
+    if "waiter_id" in data:
+        if current_user.role != UserRole.manager:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only manager can reassign waiter")
+        if order.status in FINAL_STATUSES:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot reassign waiter on finalized order")
+        new_waiter = db.get(User, data.pop("waiter_id"))
+        if new_waiter is None or new_waiter.role != UserRole.waiter:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Waiter not found")
+        order.waiter_id = new_waiter.id
+
+    if data and order.status not in {OrderStatus.pending, OrderStatus.in_progress}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Order can no longer be edited")
+
     if "table_id" in data:
         new_table = db.get(CafeTable, data["table_id"])
         if new_table is None:
@@ -603,3 +631,82 @@ async def update_item_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     await _broadcast_order("order.updated", order)
     return order
+
+
+@router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_order(
+    order_id: int,
+    write_off: bool = Query(default=True, description="True=cancel (keep record); False=hard delete"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    if current_user.role != UserRole.manager:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Manager only")
+
+    order = db.scalar(_order_stmt().where(Order.id == order_id))
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+    if write_off:
+        # Soft cancel — change status to cancelled, keep all records
+        if order.status in FINAL_STATUSES:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Order is already finalized")
+        prev_status = order.status
+        order.status = OrderStatus.cancelled
+        others_active = db.scalar(
+            select(func.count(Order.id)).where(
+                Order.table_id == order.table_id,
+                Order.id != order.id,
+                Order.status.not_in([OrderStatus.paid, OrderStatus.cancelled]),
+            )
+        )
+        if not others_active:
+            order.table.status = TableStatus.free
+        db.add(OrderEvent(
+            order=order,
+            actor_id=current_user.id,
+            event_type="order.status_changed",
+            from_status=prev_status,
+            to_status=OrderStatus.cancelled,
+            message="Списан менеджером",
+        ))
+        db.commit()
+        order = db.scalar(_order_stmt().where(Order.id == order.id))
+        await _broadcast_order("order.status_changed", order)
+    else:
+        # Hard delete — remove from database entirely
+        if order.payment is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot delete a paid order. Issue a refund first.",
+            )
+        others_active = db.scalar(
+            select(func.count(Order.id)).where(
+                Order.table_id == order.table_id,
+                Order.id != order.id,
+                Order.status.not_in([OrderStatus.paid, OrderStatus.cancelled]),
+            )
+        )
+        if not others_active:
+            order.table.status = TableStatus.free
+        broadcast_payload = {
+            "type": "order.cancelled",
+            "order_id": order.id,
+            "status": "cancelled",
+            "table_id": order.table_id,
+            "waiter_id": order.waiter_id,
+            "priority": order.priority.value,
+            "total_amount": str(order.total_amount),
+        }
+        # Delete discounts (no cascade configured on OrderDiscount)
+        db.execute(
+            select(OrderDiscount).where(OrderDiscount.order_id == order.id)
+        )
+        for d in db.scalars(select(OrderDiscount).where(OrderDiscount.order_id == order.id)):
+            db.delete(d)
+        db.delete(order)
+        db.commit()
+        await websocket_manager.publish(
+            ["manager", "kitchen", f"waiter:{broadcast_payload['waiter_id']}"],
+            broadcast_payload,
+        )

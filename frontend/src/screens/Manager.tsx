@@ -370,70 +370,490 @@ export function ManagerDashboard() {
 
 // ─── Manager Orders ───────────────────────────────────────────────────────────
 
+const ORD_PAGE_SIZE = 25;
+
+const ORD_STATUS_OPTIONS: Array<{ value: OrderStatus | "all"; label: string }> = [
+  { value: "all", label: "Все статусы" },
+  { value: "pending", label: "Ожидает" },
+  { value: "in_progress", label: "Готовится" },
+  { value: "ready", label: "Готово" },
+  { value: "served", label: "Подан" },
+  { value: "paid", label: "Оплачен" },
+  { value: "cancelled", label: "Отменён" },
+];
+
+const EVENT_LABEL: Record<string, string> = {
+  "order.created": "Заказ создан",
+  "order.status_changed": "Статус изменён",
+  "order.updated": "Заказ обновлён",
+  "order.paid": "Оплачен",
+  "order.cancelled": "Отменён",
+  "order.discount_added": "Скидка добавлена",
+  "payment.refunded": "Возврат",
+};
+const EVENT_DOT: Record<string, string> = {
+  "order.created": "var(--brand)",
+  "order.paid": "var(--olive)",
+  "order.cancelled": "var(--red)",
+  "payment.refunded": "#f59e0b",
+};
+const PAYMENT_METHOD_RU: Record<string, string> = {
+  cash: "Наличные", card: "Карта", mixed: "Смешанная", external: "QR / внешний",
+};
+
+function OrderDetailModal({
+  order, onClose, onCancel, onRefund, onReassign, onPrint,
+}: {
+  order: Order;
+  onClose: () => void;
+  onCancel: () => void;
+  onRefund: () => void;
+  onReassign: () => void;
+  onPrint: () => void;
+}) {
+  const totalItems = order.items.reduce((s, i) => s + i.quantity, 0);
+  const isActive = !["paid", "cancelled"].includes(order.status);
+  return (
+    <Modal
+      title={`Заказ #${order.id}`}
+      onClose={onClose}
+      width={680}
+      footer={
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button className="btn sm" onClick={onPrint}><Icon name="print" /> Печать чека</button>
+          {isActive && <button className="btn sm danger" onClick={onCancel}>Отменить</button>}
+          {order.payment && <button className="btn sm" style={{ color: "#f59e0b", border: "1px solid #f59e0b" }} onClick={onRefund}>Возврат</button>}
+          <button className="btn sm" onClick={onReassign}>Переназначить</button>
+          <button className="btn ghost sm" style={{ marginLeft: "auto" }} onClick={onClose}>Закрыть</button>
+        </div>
+      }
+    >
+      {/* Header info */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12, marginBottom: 18, padding: "12px 16px", background: "var(--bg-sunken)", borderRadius: "var(--r)" }}>
+        {[
+          ["Стол", order.table ? `Стол ${order.table.number}` : `#${order.table_id}`],
+          ["Официант", order.waiter?.full_name ?? `#${order.waiter_id}`],
+          ["Статус", null],
+          ["Приоритет", null],
+          ["Позиций", `${totalItems} шт.`],
+          ["Сумма", fmtKZT(order.total_amount)],
+          ["Создан", fmtTime(order.created_at)],
+        ].map(([label, val]) => (
+          <div key={label as string}>
+            <div style={{ fontSize: 11, color: "var(--ink-4)", marginBottom: 3 }}>{label}</div>
+            {label === "Статус" ? <StatusBadge status={order.status} /> :
+             label === "Приоритет" ? <PriorityChip priority={order.priority} showLabel /> :
+             <div style={{ fontSize: 13, fontWeight: 500 }}>{val}</div>}
+          </div>
+        ))}
+      </div>
+
+      {/* Items */}
+      <div style={{ marginBottom: 18 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Позиции</div>
+        <div style={{ border: "1px solid var(--line-1)", borderRadius: "var(--r)", overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 50px 80px 80px 70px", padding: "8px 12px", background: "var(--bg-sunken)", fontSize: 11, color: "var(--ink-4)", fontWeight: 600, textTransform: "uppercase" }}>
+            <div>Блюдо</div><div>Кол</div><div>Цена</div><div>Итого</div><div>Статус</div>
+          </div>
+          {order.items.map(i => (
+            <div key={i.id} style={{ display: "grid", gridTemplateColumns: "1fr 50px 80px 80px 70px", padding: "8px 12px", borderTop: "1px solid var(--line-1)", fontSize: 13 }}>
+              <div style={{ fontWeight: 500 }}>{i.menu_item?.name ?? `#${i.menu_item_id}`}{i.note && <span style={{ color: "var(--ink-4)", fontSize: 11, display: "block" }}>{i.note}</span>}</div>
+              <div style={{ color: "var(--ink-3)" }}>{i.quantity}</div>
+              <div className="num">{fmtKZT(i.unit_price)}</div>
+              <div className="num" style={{ fontWeight: 600 }}>{fmtKZT(i.line_total)}</div>
+              <div style={{ fontSize: 11, color: i.status === "served" ? "var(--olive)" : i.status === "ready" ? "var(--brand)" : "var(--ink-4)" }}>{i.status}</div>
+            </div>
+          ))}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 50px 80px 80px 70px", padding: "8px 12px", borderTop: "2px solid var(--line-1)", background: "var(--bg-sunken)", fontSize: 13 }}>
+            <div style={{ gridColumn: "1/4", fontWeight: 600 }}>Итого</div>
+            <div className="num" style={{ fontWeight: 700 }}>{fmtKZT(order.total_amount)}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Payment */}
+      {order.payment && (
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Оплата</div>
+          <div style={{ padding: "12px 16px", background: "var(--bg-sunken)", borderRadius: "var(--r)", display: "flex", gap: 24, flexWrap: "wrap", fontSize: 13 }}>
+            {[
+              ["Метод", PAYMENT_METHOD_RU[order.payment.method] ?? order.payment.method],
+              ["Подытог", fmtKZT(order.payment.subtotal_amount)],
+              ["Скидка", parseFloat(order.payment.discount_amount) > 0 ? `−${fmtKZT(order.payment.discount_amount)}` : "—"],
+              ["Итого", fmtKZT(order.payment.final_amount)],
+              ["Получено", fmtKZT(order.payment.amount_received)],
+              ["Сдача", fmtKZT(order.payment.change_due)],
+            ].map(([label, val]) => (
+              <div key={label}>
+                <div style={{ fontSize: 11, color: "var(--ink-4)", marginBottom: 2 }}>{label}</div>
+                <div style={{ fontWeight: 600 }}>{val}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Timeline */}
+      {order.events.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>История</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            {[...order.events].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).map((ev, idx) => (
+              <div key={ev.id} style={{ display: "flex", gap: 12, position: "relative" }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: EVENT_DOT[ev.event_type] ?? "var(--ink-4)", marginTop: 4, flexShrink: 0 }} />
+                  {idx < order.events.length - 1 && <div style={{ width: 2, flex: 1, background: "var(--line-1)", margin: "2px 0" }} />}
+                </div>
+                <div style={{ paddingBottom: 12, flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{EVENT_LABEL[ev.event_type] ?? ev.event_type}</div>
+                  {ev.from_status && ev.to_status && ev.from_status !== ev.to_status && (
+                    <div style={{ fontSize: 11, color: "var(--ink-4)" }}>{ev.from_status} → {ev.to_status}</div>
+                  )}
+                  {ev.message && <div style={{ fontSize: 12, color: "var(--ink-3)", fontStyle: "italic" }}>{ev.message}</div>}
+                  <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>
+                    {new Date(ev.created_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 export function ManagerOrders() {
-  const { state, refreshOrders, changeStatus, toast } = useApp();
+  const { state, toast } = useApp();
+  const token = state.token!;
+
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<OrderStatus | "all">("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [waiterFilter, setWaiterFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [users, setUsers] = useState<User[]>([]);
 
-  const orders = state.orders.filter(o => {
-    if (statusFilter !== "all" && o.status !== statusFilter) return false;
-    if (search && !String(o.id).includes(search) && !(o.table?.number ?? "").includes(search)) return false;
-    return true;
-  });
+  const [detailOrder, setDetailOrder] = useState<Order | null>(null);
+  const [cancelModal, setCancelModal] = useState<Order | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [deleteModal, setDeleteModal] = useState<{ order: Order; writeOff: boolean } | null>(null);
+  const [refundModal, setRefundModal] = useState<Order | null>(null);
+  const [refundAmount, setRefundAmount] = useState("");
+  const [refundReason, setRefundReason] = useState("");
+  const [reassignModal, setReassignModal] = useState<Order | null>(null);
+  const [reassignWaiterId, setReassignWaiterId] = useState("");
+  const [reloadRev, setReloadRev] = useState(0);
+  const [deleteMenuId, setDeleteMenuId] = useState<number | null>(null);
 
-  const handleStatus = async (orderId: number, status: OrderStatus) => {
+  useEffect(() => {
+    if (!deleteMenuId) return;
+    const close = () => setDeleteMenuId(null);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [deleteMenuId]);
+
+  useEffect(() => {
+    api.users(token).then(u => setUsers(u.filter(x => x.role === "waiter"))).catch(() => {});
+  }, [token]);
+
+  // debounce search
+  useEffect(() => {
+    const t = setTimeout(() => { setDebouncedSearch(search); setPage(0); }, 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // reset page on filter change
+  useEffect(() => { setPage(0); }, [statusFilter, waiterFilter, dateFrom, dateTo]);
+
+  // load orders
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    const params: Record<string, string | number | boolean | undefined> = {
+      limit: ORD_PAGE_SIZE + 1,
+      offset: page * ORD_PAGE_SIZE,
+      include_completed: true,
+    };
+    if (statusFilter !== "all") params.status = statusFilter;
+    if (waiterFilter !== "all") params.waiter_id = Number(waiterFilter);
+    if (debouncedSearch) params.q = debouncedSearch;
+    if (dateFrom) params.date_from = dateFrom;
+    if (dateTo) params.date_to = dateTo;
+    api.orders(token, params)
+      .then(data => {
+        if (cancelled) return;
+        setHasMore(data.length > ORD_PAGE_SIZE);
+        setOrders(data.slice(0, ORD_PAGE_SIZE));
+      })
+      .catch(() => { if (!cancelled) toast("error", "Ошибка загрузки заказов"); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [token, statusFilter, waiterFilter, debouncedSearch, dateFrom, dateTo, page, reloadRev]);
+
+  const reload = () => setReloadRev(r => r + 1);
+
+  // ── Actions ──────────────────────────────────────────────────────────────────
+
+  const handleCancel = async () => {
+    if (!cancelModal) return;
     try {
-      await changeStatus(orderId, status);
-      toast("success", "Статус обновлён");
-    } catch {
-      toast("error", "Ошибка обновления статуса");
-    }
+      await api.changeOrderStatus(token, cancelModal.id, "cancelled", cancelReason || "Отменён менеджером");
+      toast("success", "Заказ отменён");
+      setCancelModal(null); setCancelReason("");
+      if (detailOrder?.id === cancelModal.id) setDetailOrder(null);
+      reload();
+    } catch (e: unknown) { toast("error", e instanceof Error ? e.message : "Ошибка"); }
   };
 
-  const STATUS_OPTIONS: Array<{ value: OrderStatus | "all"; label: string }> = [
-    { value: "all", label: "Все статусы" },
-    { value: "pending", label: "Ожидает" },
-    { value: "in_progress", label: "Готовится" },
-    { value: "ready", label: "Готово" },
-    { value: "served", label: "Подан" },
-    { value: "paid", label: "Оплачен" },
-    { value: "cancelled", label: "Отменён" },
-  ];
+  const handleDelete = async () => {
+    if (!deleteModal) return;
+    try {
+      await api.deleteOrder(token, deleteModal.order.id, deleteModal.writeOff);
+      toast("success", deleteModal.writeOff ? "Заказ списан" : "Заказ удалён");
+      setDeleteModal(null);
+      if (detailOrder?.id === deleteModal.order.id) setDetailOrder(null);
+      reload();
+    } catch (e: unknown) { toast("error", e instanceof Error ? e.message : "Ошибка"); }
+  };
 
+  const handleRefund = async () => {
+    if (!refundModal?.payment) return;
+    const amount = parseFloat(refundAmount);
+    if (!amount || amount <= 0) { toast("error", "Введите корректную сумму"); return; }
+    if (!refundReason.trim()) { toast("error", "Укажите причину возврата"); return; }
+    try {
+      await api.createRefund(token, refundModal.payment.id, { amount, reason: refundReason });
+      toast("success", "Возврат оформлен");
+      setRefundModal(null); setRefundAmount(""); setRefundReason("");
+      reload();
+    } catch (e: unknown) { toast("error", e instanceof Error ? e.message : "Ошибка"); }
+  };
+
+  const handleReassign = async () => {
+    if (!reassignModal || !reassignWaiterId) return;
+    try {
+      const updated = await api.updateOrder(token, reassignModal.id, { waiter_id: Number(reassignWaiterId) });
+      toast("success", "Официант переназначен");
+      setReassignModal(null); setReassignWaiterId("");
+      if (detailOrder?.id === updated.id) setDetailOrder(updated);
+      reload();
+    } catch (e: unknown) { toast("error", e instanceof Error ? e.message : "Ошибка"); }
+  };
+
+  const handlePrint = async (orderId: number) => {
+    try { await api.receipt(token, orderId); toast("success", "Задание на печать отправлено"); }
+    catch { toast("error", "Ошибка печати"); }
+  };
+
+  const exportCSV = () => {
+    const rows = [
+      ["ID", "Стол", "Официант", "Статус", "Приоритет", "Позиций", "Сумма (₸)", "Создан"].join(","),
+      ...orders.map(o => [
+        o.id,
+        o.table?.number ?? o.table_id,
+        `"${o.waiter?.full_name ?? o.waiter_id}"`,
+        o.status,
+        o.priority,
+        o.items.reduce((s, i) => s + i.quantity, 0),
+        parseFloat(o.total_amount).toFixed(2),
+        `"${new Date(o.created_at).toLocaleString("ru-RU")}"`,
+      ].join(",")),
+    ].join("\n");
+    const blob = new Blob(["﻿" + rows], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `orders_${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-paper)", display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <select className="select" value={statusFilter} onChange={e => setStatusFilter(e.target.value as OrderStatus | "all")} style={{ width: 160 }}>
-          {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+
+      {/* Filters */}
+      <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-paper)", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <select className="select" value={statusFilter} onChange={e => setStatusFilter(e.target.value as OrderStatus | "all")} style={{ width: 150 }}>
+          {ORD_STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
-        <div style={{ position: "relative" }}>
-          <input className="input" placeholder="Поиск по номеру..." value={search} onChange={e => setSearch(e.target.value)} style={{ width: 200, paddingLeft: 32 }} />
-          <Icon name="search" size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--ink-4)" }} />
+        <select className="select" value={waiterFilter} onChange={e => setWaiterFilter(e.target.value)} style={{ width: 160 }}>
+          <option value="all">Все официанты</option>
+          {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+        </select>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <input type="date" className="input" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ width: 140 }} title="Дата от" />
+          <span style={{ color: "var(--ink-4)", fontSize: 13 }}>—</span>
+          <input type="date" className="input" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ width: 140 }} title="Дата до" />
         </div>
-        <button className="btn sm" style={{ marginLeft: "auto" }} onClick={refreshOrders}><Icon name="sort" /> Обновить</button>
+        <div style={{ position: "relative" }}>
+          <input className="input" placeholder="Поиск..." value={search} onChange={e => setSearch(e.target.value)} style={{ width: 180, paddingLeft: 30 }} />
+          <Icon name="search" size={13} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "var(--ink-4)" }} />
+        </div>
+        <button className="btn sm" onClick={exportCSV} style={{ marginLeft: "auto" }}><Icon name="analytics" /> CSV</button>
+        <button className="btn sm" onClick={reload} disabled={loading}>
+          {loading ? <span className="spin" /> : <Icon name="sort" />} Обновить
+        </button>
       </div>
+
+      {/* Table */}
       <div style={{ flex: 1, overflow: "auto" }}>
-        <div className="list-head" style={{ gridTemplateColumns: "60px 80px 120px 100px 90px 60px 110px 90px 110px" }}>
-          <div>#</div><div>Стол</div><div>Официант</div><div>Статус</div><div>Приоритет</div><div>Шт.</div><div>Сумма</div><div>Создан</div><div>Действие</div>
+        <div className="list-head" style={{ gridTemplateColumns: "56px 76px 140px 96px 80px 50px 104px 84px 96px" }}>
+          <div>#</div><div>Стол</div><div>Официант</div><div>Статус</div><div>Приор.</div><div>Шт.</div><div>Сумма</div><div>Создан</div><div>Действие</div>
         </div>
         {orders.map(o => (
-          <div key={o.id} className="list-row" style={{ gridTemplateColumns: "60px 80px 120px 100px 90px 60px 110px 90px 110px" }}>
+          <div
+            key={o.id}
+            className="list-row"
+            style={{ gridTemplateColumns: "56px 76px 140px 96px 80px 50px 104px 84px 96px", cursor: "pointer" }}
+            onClick={() => setDetailOrder(o)}
+          >
             <div className="mono" style={{ fontWeight: 600 }}>#{o.id}</div>
             <div>{o.table ? `Стол ${o.table.number}` : `#${o.table_id}`}</div>
-            <div style={{ fontSize: 13 }}>{o.waiter?.full_name ?? "—"}</div>
-            <div><StatusBadge status={o.status} /></div>
-            <div><PriorityChip priority={o.priority} showLabel={false} /></div>
+            <div style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.waiter?.full_name ?? "—"}</div>
+            <div onClick={e => e.stopPropagation()}><StatusBadge status={o.status} /></div>
+            <div onClick={e => e.stopPropagation()}><PriorityChip priority={o.priority} showLabel={false} /></div>
             <div style={{ color: "var(--ink-3)" }}>{o.items.reduce((s, i) => s + i.quantity, 0)}</div>
             <div className="num">{fmtKZT(o.total_amount)}</div>
             <div className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{fmtTime(o.created_at)}</div>
-            <div style={{ display: "flex", gap: 4 }}>
-              {o.status === "pending" && <button className="btn sm danger" onClick={() => handleStatus(o.id, "cancelled")}>Отменить</button>}
-              {o.status === "served" && <button className="btn sm success" onClick={() => handleStatus(o.id, "paid")}><Icon name="check" /> Оплачен</button>}
+            <div style={{ display: "flex", gap: 4 }} onClick={e => e.stopPropagation()}>
+              {!["paid", "cancelled"].includes(o.status) && (
+                <button className="btn sm danger" style={{ padding: "2px 8px", fontSize: 11 }}
+                  onClick={() => { setCancelModal(o); setCancelReason(""); }}>
+                  Отменить
+                </button>
+              )}
+              <div style={{ position: "relative" }}>
+                <button className="btn sm" style={{ padding: "2px 6px", fontSize: 11 }}
+                  onClick={e => { e.stopPropagation(); setDeleteMenuId(deleteMenuId === o.id ? null : o.id); }}>
+                  ✕
+                </button>
+                {deleteMenuId === o.id && (
+                  <div style={{ position: "absolute", right: 0, top: "100%", zIndex: 999, background: "var(--bg-paper)", border: "1px solid var(--line-1)", borderRadius: "var(--r)", boxShadow: "var(--shadow-lg)", minWidth: 170, marginTop: 2 }}>
+                    <button className="btn ghost" style={{ width: "100%", textAlign: "left", padding: "8px 14px", fontSize: 13, borderRadius: 0 }}
+                      onClick={e => { e.stopPropagation(); setDeleteModal({ order: o, writeOff: true }); setDeleteMenuId(null); }}>
+                      Удалить со списанием
+                    </button>
+                    <button className="btn ghost" style={{ width: "100%", textAlign: "left", padding: "8px 14px", fontSize: 13, borderRadius: 0, color: "var(--red)" }}
+                      onClick={e => { e.stopPropagation(); setDeleteModal({ order: o, writeOff: false }); setDeleteMenuId(null); }}>
+                      Удалить без списания
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         ))}
-        {orders.length === 0 && <div style={{ padding: 60, textAlign: "center", color: "var(--ink-3)" }}>Заказов нет</div>}
+        {!loading && orders.length === 0 && (
+          <div style={{ padding: 60, textAlign: "center", color: "var(--ink-3)" }}>Заказов нет</div>
+        )}
+        {loading && (
+          <div style={{ padding: 40, textAlign: "center", color: "var(--ink-3)" }}><span className="spin" /></div>
+        )}
       </div>
+
+      {/* Pagination */}
+      <div style={{ padding: "8px 16px", borderTop: "1px solid var(--line-1)", background: "var(--bg-paper)", display: "flex", alignItems: "center", gap: 12, fontSize: 13 }}>
+        <button className="btn sm" disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>← Назад</button>
+        <span style={{ color: "var(--ink-3)" }}>Стр. {page + 1}{hasMore ? "" : ` / ${page + 1}`}</span>
+        <button className="btn sm" disabled={!hasMore} onClick={() => setPage(p => p + 1)}>Вперёд →</button>
+        <span style={{ marginLeft: "auto", color: "var(--ink-4)", fontSize: 12 }}>
+          {orders.length} записей на странице
+        </span>
+      </div>
+
+      {/* ── Modals ────────────────────────────────────────────────────────────── */}
+
+      {detailOrder && (
+        <OrderDetailModal
+          order={detailOrder}
+          onClose={() => setDetailOrder(null)}
+          onCancel={() => { setCancelModal(detailOrder); setCancelReason(""); }}
+          onRefund={() => setRefundModal(detailOrder)}
+          onReassign={() => { setReassignModal(detailOrder); setReassignWaiterId(""); }}
+          onPrint={() => handlePrint(detailOrder.id)}
+        />
+      )}
+
+      {cancelModal && (
+        <Modal title="Отменить заказ" onClose={() => setCancelModal(null)} width={400}
+          footer={<><button className="btn ghost" onClick={() => setCancelModal(null)}>Отмена</button><button className="btn danger" onClick={handleCancel}>Отменить заказ</button></>}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ fontSize: 14 }}>Заказ <strong>#{cancelModal.id}</strong> · {cancelModal.table ? `Стол ${cancelModal.table.number}` : ""}</div>
+            <div className="field">
+              <label className="field-label">Причина отмены</label>
+              <textarea className="textarea" rows={2} placeholder="Укажите причину..." value={cancelReason} onChange={e => setCancelReason(e.target.value)} />
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {deleteModal && (
+        <Modal
+          title={deleteModal.writeOff ? "Удалить со списанием" : "Удалить без списания"}
+          onClose={() => setDeleteModal(null)}
+          width={400}
+          footer={<><button className="btn ghost" onClick={() => setDeleteModal(null)}>Отмена</button><button className="btn danger" onClick={handleDelete}>Удалить</button></>}
+        >
+          <div style={{ fontSize: 14, lineHeight: 1.6 }}>
+            {deleteModal.writeOff
+              ? <>Заказ <strong>#{deleteModal.order.id}</strong> будет отмечен как <strong>отменён</strong>. Запись сохранится для учёта, продукты будут списаны.</>
+              : <>Заказ <strong>#{deleteModal.order.id}</strong> будет <strong>полностью удалён</strong> из базы данных. Это действие необратимо. Доступно только для неоплаченных заказов.</>}
+          </div>
+        </Modal>
+      )}
+
+      {refundModal?.payment && (
+        <Modal title="Оформить возврат" onClose={() => setRefundModal(null)} width={420}
+          footer={<><button className="btn ghost" onClick={() => setRefundModal(null)}>Отмена</button><button className="btn primary" onClick={handleRefund}>Оформить возврат</button></>}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ padding: "10px 14px", background: "var(--bg-sunken)", borderRadius: "var(--r)", fontSize: 13 }}>
+              <div>Заказ <strong>#{refundModal.id}</strong> · {PAYMENT_METHOD_RU[refundModal.payment.method]}</div>
+              <div style={{ marginTop: 4, color: "var(--ink-3)" }}>Оплачено: <strong>{fmtKZT(refundModal.payment.final_amount)}</strong></div>
+            </div>
+            <div className="field">
+              <label className="field-label">Сумма возврата (₸)</label>
+              <input className="input" type="number" min={0.01} max={parseFloat(refundModal.payment.final_amount)} step={0.01}
+                value={refundAmount} onChange={e => setRefundAmount(e.target.value)}
+                placeholder={`макс. ${parseFloat(refundModal.payment.final_amount).toFixed(2)}`} />
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {[100, 50, 25].map(pct => (
+                <button key={pct} className="btn sm" onClick={() => setRefundAmount((parseFloat(refundModal!.payment!.final_amount) * pct / 100).toFixed(2))}>
+                  {pct}%
+                </button>
+              ))}
+              <button className="btn sm" onClick={() => setRefundAmount(parseFloat(refundModal!.payment!.final_amount).toFixed(2))}>Полный</button>
+            </div>
+            <div className="field">
+              <label className="field-label">Причина возврата</label>
+              <textarea className="textarea" rows={2} placeholder="Укажите причину..." value={refundReason} onChange={e => setRefundReason(e.target.value)} />
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {reassignModal && (
+        <Modal title="Переназначить официанта" onClose={() => setReassignModal(null)} width={360}
+          footer={<><button className="btn ghost" onClick={() => setReassignModal(null)}>Отмена</button><button className="btn primary" disabled={!reassignWaiterId} onClick={handleReassign}>Переназначить</button></>}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ fontSize: 13, color: "var(--ink-3)" }}>
+              Заказ <strong>#{reassignModal.id}</strong> · сейчас: <strong>{reassignModal.waiter?.full_name ?? `#${reassignModal.waiter_id}`}</strong>
+            </div>
+            <div className="field">
+              <label className="field-label">Новый официант</label>
+              <select className="select" value={reassignWaiterId} onChange={e => setReassignWaiterId(e.target.value)} style={{ width: "100%" }}>
+                <option value="">— выберите —</option>
+                {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+              </select>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

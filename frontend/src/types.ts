@@ -109,10 +109,15 @@ export interface Order {
   items: OrderItem[];
   events: OrderEvent[];
   payment?: {
+    id: number;
     method: "cash" | "card" | "mixed" | "external";
+    subtotal_amount: string;
+    discount_amount: string;
     final_amount: string;
     amount_received: string;
     change_due: string;
+    created_at: string;
+    created_by_id: number;
   } | null;
 }
 

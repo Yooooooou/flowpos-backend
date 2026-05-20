@@ -140,12 +140,16 @@ export const api = {
     orderId: number,
     payload: {
       table_id?: number;
+      waiter_id?: number;
       priority?: string;
       customer_note?: string;
       items?: OrderItemInput[];
     }
   ) {
     return request<Order>(`/orders/${orderId}`, { method: "PATCH", body: JSON.stringify(payload) }, token);
+  },
+  deleteOrder(token: string, orderId: number, writeOff: boolean) {
+    return request<void>(`/orders/${orderId}?write_off=${writeOff}`, { method: "DELETE" }, token);
   },
   changeOrderStatus(token: string, orderId: number, status: OrderStatus, message?: string) {
     return request<Order>(

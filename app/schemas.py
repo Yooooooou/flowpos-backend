@@ -154,6 +154,7 @@ class OrderCreate(BaseModel):
 
 class OrderUpdate(BaseModel):
     table_id: int | None = None
+    waiter_id: int | None = None
     priority: OrderPriority | None = None
     customer_note: str | None = None
     items: list[OrderItemCreate] | None = Field(default=None, min_length=1)
