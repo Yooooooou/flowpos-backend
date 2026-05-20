@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useApp } from "../lib/store";
 import type {
+  AnalyticsSummary,
   Category,
   MenuItem,
   Order,
@@ -16,52 +17,317 @@ import { StatusBadge, PriorityChip, fmtKZT, fmtTime, Metric, Modal, ConfirmModal
 
 const ROLE_LABEL: Record<string, string> = { manager: "Менеджер", waiter: "Официант", kitchen: "Кухня" };
 
+// ─── Dashboard helpers ────────────────────────────────────────────────────────
+
+type DashPeriod = "today" | "7d" | "month";
+
+function SparkLine({ data, color = "var(--brand)" }: { data: number[]; color?: string }) {
+  if (data.length < 2) return null;
+  const max = Math.max(...data, 1);
+  const w = 72, h = 28;
+  const pts = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - (v / max) * h}`).join(" ");
+  return (
+    <svg width={w} height={h} style={{ display: "block", flexShrink: 0 }}>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function DonutChart({ segments }: { segments: Array<{ value: number; color: string; label: string }> }) {
+  const total = segments.reduce((s, seg) => s + seg.value, 0);
+  const denom = total || 1;
+  const r = 50, cx = 65, cy = 65;
+  const circ = 2 * Math.PI * r;
+  let cumulative = 0;
+  const arcs = segments.filter(s => s.value > 0).map(seg => {
+    const dashLen = (seg.value / denom) * circ;
+    const rotate = (cumulative / denom) * 360 - 90;
+    cumulative += seg.value;
+    return { ...seg, dashLen, rotate };
+  });
+  return (
+    <svg width={130} height={130}>
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--bg-sunken)" strokeWidth={16} />
+      {arcs.map((arc, i) => (
+        <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={arc.color} strokeWidth={16}
+          strokeDasharray={`${arc.dashLen} ${circ}`}
+          style={{ transform: `rotate(${arc.rotate}deg)`, transformOrigin: `${cx}px ${cy}px` }}
+        />
+      ))}
+      <text x={cx} y={cy - 3} textAnchor="middle" fontSize={18} fontWeight={700} fill="var(--ink-1)">{total}</text>
+      <text x={cx} y={cy + 14} textAnchor="middle" fontSize={11} fill="var(--ink-3)">всего</text>
+    </svg>
+  );
+}
+
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export function ManagerDashboard() {
-  const { state, refreshOrders } = useApp();
+  const { state } = useApp();
+  const token = state.token!;
+  const [period, setPeriod] = useState<DashPeriod>("today");
+  const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [barMetric, setBarMetric] = useState<"count" | "revenue">("count");
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const loadAnalytics = async () => {
+    setLoading(true);
+    try { setAnalytics(await api.analytics(token)); } catch { /* live data still shows */ }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { loadAnalytics(); }, [token, period]);
 
   const orders = state.orders;
   const activeOrders = orders.filter(o => !["paid", "cancelled"].includes(o.status));
   const paidOrders = orders.filter(o => o.status === "paid");
   const revenue = paidOrders.reduce((s, o) => s + parseFloat(o.total_amount), 0);
+  const tables = state.tables;
+  const occupiedTables = tables.filter(t => t.status === "occupied").length;
+  const shift = state.currentShift;
+  const shiftOpenedTime = shift
+    ? new Date(shift.opened_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })
+    : "—";
 
-  const itemCounts: Record<string, number> = {};
+  // Hourly breakdown
+  const hourly = Array.from({ length: 24 }, (_, h) => ({ hour: h, count: 0, revenue: 0 }));
+  orders.forEach(o => {
+    const h = new Date(o.created_at).getHours();
+    hourly[h].count++;
+    hourly[h].revenue += parseFloat(o.total_amount);
+  });
+  const nowHour = now.getHours();
+  const hasAnyData = hourly.some(h => h.count > 0);
+  const displayHours = hasAnyData
+    ? hourly.filter(h => h.count > 0 || Math.abs(h.hour - nowHour) <= 2)
+    : hourly.slice(Math.max(0, nowHour - 4), nowHour + 5);
+  const maxBarVal = Math.max(...displayHours.map(h => barMetric === "count" ? h.count : h.revenue), 1);
+
+  // Kitchen load donut
+  const board = state.kitchenBoard;
+  const kitchenSegments = [
+    { label: "Ожидает",  value: board?.pending.length ?? 0,     color: "#f59e0b" },
+    { label: "Готовится", value: board?.in_progress.length ?? 0, color: "var(--brand)" },
+    { label: "К выдаче",  value: board?.ready.length ?? 0,       color: "#10b981" },
+  ];
+
+  // Top dishes
+  const dishMap: Record<string, { name: string; count: number }> = {};
   orders.forEach(o => o.items.forEach(i => {
     const name = i.menu_item?.name ?? `#${i.menu_item_id}`;
-    itemCounts[name] = (itemCounts[name] ?? 0) + i.quantity;
+    if (!dishMap[name]) dishMap[name] = { name, count: 0 };
+    dishMap[name].count += i.quantity;
   }));
-  const topItems = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  const maxCount = topItems[0]?.[1] ?? 1;
+  const topDishes = Object.values(dishMap).sort((a, b) => b.count - a.count).slice(0, 5);
+  const maxDishCount = topDishes[0]?.count ?? 1;
+
+  // Waiter productivity from live paid orders
+  const waiterMap: Record<number, { name: string; orders: number; revenue: number }> = {};
+  paidOrders.forEach(o => {
+    const id = o.waiter_id;
+    if (!waiterMap[id]) waiterMap[id] = { name: o.waiter?.full_name ?? `#${id}`, orders: 0, revenue: 0 };
+    waiterMap[id].orders++;
+    waiterMap[id].revenue += parseFloat(o.total_amount);
+  });
+  const waiters = Object.entries(waiterMap)
+    .map(([id, s]) => ({ id: Number(id), ...s }))
+    .sort((a, b) => b.revenue - a.revenue);
+  const maxWaiterRevenue = waiters[0]?.revenue ?? 1;
+
+  // Revenue sparkline: last 8 hours
+  const sparkData = Array.from({ length: 8 }, (_, i) => hourly[(nowHour - 7 + i + 24) % 24].revenue);
+  const avgWaitMins = analytics?.average_customer_wait_seconds
+    ? Math.round(analytics.average_customer_wait_seconds / 60) : null;
+  const PERIOD_LABELS: Record<DashPeriod, string> = { today: "Сегодня", "7d": "7 дней", month: "Месяц" };
+
+  const waiterRows = waiters.length > 0
+    ? waiters
+    : (analytics?.staff_productivity ?? []).map(s => ({ id: s.waiter_id, name: s.full_name, orders: s.orders, revenue: parseFloat(s.revenue) }));
+  const maxWR = waiterRows[0]?.revenue ?? 1;
 
   return (
-    <div style={{ overflow: "auto", padding: 24 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12, marginBottom: 24 }}>
-        <Metric label="Активные заказы" value={activeOrders.length} icon="orders" />
-        <Metric label="Выручка сегодня"  value={fmtKZT(revenue)}       icon="money"  />
-        <Metric label="Оплаченных"       value={paidOrders.length}      icon="check"  />
-        <Metric label="Занято столов"    value={state.tables.filter(t => t.status === "occupied").length} icon="tables" />
-        <Metric label="Всего заказов"    value={orders.length}          icon="analytics" />
+    <div style={{ overflow: "auto", padding: 24, minHeight: "100%", background: "var(--bg-canvas)" }}>
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 22, fontWeight: 750, color: "var(--ink-1)" }}>Обзор смены</div>
+          <div style={{ fontSize: 13, color: "var(--ink-3)", marginTop: 2 }}>
+            {shift
+              ? <>Смена #{shift.id} · открыта в {shiftOpenedTime} · {now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</>
+              : <>Нет активной смены · {now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</>}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 3, background: "var(--bg-sunken)", borderRadius: "var(--r)", padding: 3 }}>
+          {(["today", "7d", "month"] as DashPeriod[]).map(p => (
+            <button key={p} onClick={() => setPeriod(p)} style={{
+              padding: "5px 14px", border: 0, borderRadius: "calc(var(--r) - 2px)", fontSize: 13, cursor: "pointer",
+              background: period === p ? "var(--bg-paper)" : "transparent",
+              color: period === p ? "var(--ink-1)" : "var(--ink-3)",
+              fontWeight: period === p ? 600 : 400,
+              boxShadow: period === p ? "var(--shadow-sm)" : "none",
+            }}>{PERIOD_LABELS[p]}</button>
+          ))}
+        </div>
+        <button className="btn sm" onClick={loadAnalytics} disabled={loading}>
+          {loading ? <span className="spin" /> : <Icon name="sort" />} Обновить
+        </button>
       </div>
 
-      <div className="dash-main" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 16, marginBottom: 24 }}>
-        {/* Active orders */}
+      {/* Metric cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 14, marginBottom: 20 }}>
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ fontSize: 12, color: "var(--ink-3)", marginBottom: 8 }}>Выручка за смену</div>
+          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 750, lineHeight: 1.2 }}>{fmtKZT(revenue)}</div>
+              <div style={{ fontSize: 12, color: "var(--olive)", marginTop: 4 }}>+{paidOrders.length} чеков</div>
+            </div>
+            <SparkLine data={sparkData} />
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ fontSize: 12, color: "var(--ink-3)", marginBottom: 8 }}>Активные заказы</div>
+          <div style={{ fontSize: 28, fontWeight: 750, lineHeight: 1 }}>{activeOrders.length}</div>
+          <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 6 }}>
+            {activeOrders.filter(o => o.status === "pending").length} ожидают · {activeOrders.filter(o => o.status === "in_progress").length} готовятся
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ fontSize: 12, color: "var(--ink-3)", marginBottom: 8 }}>Среднее время</div>
+          <div style={{ fontSize: 28, fontWeight: 750, lineHeight: 1 }}>{avgWaitMins !== null ? `${avgWaitMins} мин` : "—"}</div>
+          <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 6 }}>ожидание клиента</div>
+        </div>
+
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ fontSize: 12, color: "var(--ink-3)", marginBottom: 8 }}>Столы заняты</div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+            <div style={{ fontSize: 28, fontWeight: 750, lineHeight: 1 }}>{occupiedTables}</div>
+            <div style={{ fontSize: 16, color: "var(--ink-3)" }}>/ {tables.length}</div>
+          </div>
+          <div style={{ marginTop: 10, height: 5, background: "var(--bg-sunken)", borderRadius: 999, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${tables.length ? (occupiedTables / tables.length) * 100 : 0}%`, background: "var(--brand)", borderRadius: 999, transition: "width 0.4s" }} />
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ fontSize: 12, color: "var(--ink-3)", marginBottom: 8 }}>Чеков за смену</div>
+          <div style={{ fontSize: 28, fontWeight: 750, lineHeight: 1 }}>{paidOrders.length}</div>
+          {analytics && (
+            <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 6 }}>{fmtKZT(analytics.revenue)} gross</div>
+          )}
+        </div>
+      </div>
+
+      {/* Charts row */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 260px 280px", gap: 14, marginBottom: 14 }}>
+
+        {/* Bar chart */}
         <div className="card">
           <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ fontWeight: 600 }}>Активные заказы</div>
-            <button className="btn sm" onClick={refreshOrders}><Icon name="sort" /> Обновить</button>
-          </div>
-          <div style={{ overflow: "auto", maxHeight: 340 }}>
-            <div className="list-head" style={{ gridTemplateColumns: "60px 80px 100px 110px 90px" }}>
-              <div>Заказ</div><div>Стол</div><div>Статус</div><div>Сумма</div><div>Время</div>
+            <div style={{ fontWeight: 650 }}>Заказы по часам</div>
+            <div style={{ display: "flex", gap: 2, background: "var(--bg-sunken)", borderRadius: 6, padding: 2 }}>
+              {(["count", "revenue"] as const).map(m => (
+                <button key={m} onClick={() => setBarMetric(m)} style={{
+                  padding: "3px 10px", border: 0, borderRadius: 4, fontSize: 12, cursor: "pointer",
+                  background: barMetric === m ? "var(--bg-paper)" : "transparent",
+                  color: barMetric === m ? "var(--ink-1)" : "var(--ink-3)",
+                  fontWeight: barMetric === m ? 600 : 400,
+                }}>{m === "count" ? "Кол-во" : "Выручка"}</button>
+              ))}
             </div>
-            {activeOrders.slice(0, 10).map(o => (
-              <div key={o.id} className="list-row" style={{ gridTemplateColumns: "60px 80px 100px 110px 90px" }}>
+          </div>
+          <div style={{ padding: "14px 14px 8px", display: "flex", alignItems: "flex-end", gap: 4, height: 160, overflowX: "auto" }}>
+            {displayHours.map(h => {
+              const val = barMetric === "count" ? h.count : h.revenue;
+              const barH = Math.max(4, (val / maxBarVal) * 110);
+              const isNow = h.hour === nowHour;
+              return (
+                <div key={h.hour} title={barMetric === "count" ? `${h.count} заказов` : fmtKZT(h.revenue)}
+                  style={{ flex: 1, minWidth: 20, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                  {val > 0 && <div style={{ fontSize: 10, color: "var(--ink-3)", fontWeight: 600 }}>{barMetric === "count" ? h.count : ""}</div>}
+                  <div style={{ height: barH, width: "100%", background: isNow ? "var(--brand)" : "var(--brand-50,#dbeafe)", borderRadius: "3px 3px 0 0", transition: "height 0.3s" }} />
+                  <div style={{ fontSize: 10, color: isNow ? "var(--brand)" : "var(--ink-4)", fontWeight: isNow ? 700 : 400 }}>{String(h.hour).padStart(2, "0")}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Donut: kitchen load */}
+        <div className="card">
+          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 650 }}>Загрузка кухни</div>
+          <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+            <DonutChart segments={kitchenSegments} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
+              {kitchenSegments.map(s => (
+                <div key={s.label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 2, background: s.color, flexShrink: 0 }} />
+                    <span style={{ color: "var(--ink-2)" }}>{s.label}</span>
+                  </div>
+                  <span style={{ fontWeight: 700 }}>{s.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Top dishes */}
+        <div className="card">
+          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 650 }}>Топ блюд сегодня</div>
+          <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+            {topDishes.map((d, idx) => (
+              <div key={d.name}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, marginBottom: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ width: 16, height: 16, borderRadius: 4, background: idx < 3 ? "var(--brand)" : "var(--line-2)", color: idx < 3 ? "white" : "var(--ink-3)", fontSize: 10, fontWeight: 800, display: "grid", placeItems: "center", flexShrink: 0 }}>{idx + 1}</span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 150 }}>{d.name}</span>
+                  </div>
+                  <span style={{ fontWeight: 700, flexShrink: 0, marginLeft: 4 }}>{d.count}</span>
+                </div>
+                <div style={{ height: 5, background: "var(--bg-sunken)", borderRadius: 999, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${(d.count / maxDishCount) * 100}%`, background: idx < 3 ? "var(--brand)" : "var(--line-2)", borderRadius: 999, transition: "width 0.4s" }} />
+                </div>
+              </div>
+            ))}
+            {topDishes.length === 0 && <div style={{ color: "var(--ink-3)", fontSize: 13, textAlign: "center" }}>Нет данных</div>}
+          </div>
+        </div>
+      </div>
+
+      {/* Active orders + Waiter productivity */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14 }}>
+
+        {/* Active orders table */}
+        <div className="card">
+          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ fontWeight: 650 }}>Активные заказы</div>
+            <div style={{ fontSize: 12, color: "var(--ink-3)" }}>{activeOrders.length} заказов</div>
+          </div>
+          <div style={{ overflow: "auto", maxHeight: 300 }}>
+            <div className="list-head" style={{ gridTemplateColumns: "50px 68px 1fr 72px 90px 90px 60px" }}>
+              <div>#</div><div>СТОЛ</div><div>ПОЗИЦИИ</div><div>ОТКРЫТ</div><div>СУММА</div><div>СТАТУС</div><div>ПРИОР</div>
+            </div>
+            {activeOrders.slice(0, 15).map(o => (
+              <div key={o.id} className="list-row" style={{ gridTemplateColumns: "50px 68px 1fr 72px 90px 90px 60px" }}>
                 <div className="mono" style={{ fontWeight: 600 }}>#{o.id}</div>
                 <div>{o.table ? `Стол ${o.table.number}` : `#${o.table_id}`}</div>
-                <div><StatusBadge status={o.status} /></div>
-                <div className="num">{fmtKZT(o.total_amount)}</div>
+                <div style={{ fontSize: 12, color: "var(--ink-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {o.items.slice(0, 2).map(i => i.menu_item?.name ?? `#${i.menu_item_id}`).join(", ")}{o.items.length > 2 ? ` +${o.items.length - 2}` : ""}
+                </div>
                 <div className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{fmtTime(o.created_at)}</div>
+                <div className="num">{fmtKZT(o.total_amount)}</div>
+                <div><StatusBadge status={o.status} /></div>
+                <div><PriorityChip priority={o.priority} showLabel={false} /></div>
               </div>
             ))}
             {activeOrders.length === 0 && (
@@ -70,22 +336,31 @@ export function ManagerDashboard() {
           </div>
         </div>
 
-        {/* Top items */}
+        {/* Waiter productivity */}
         <div className="card">
-          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 600 }}>Топ блюд</div>
-          <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-            {topItems.map(([name, cnt]) => (
-              <div key={name}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "80%" }}>{name}</span>
-                  <span style={{ fontWeight: 600, color: "var(--ink-3)" }}>{cnt}</span>
+          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--line-1)", fontWeight: 650 }}>Продуктивность официантов</div>
+          <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8, overflow: "auto", maxHeight: 300 }}>
+            {waiterRows.map(w => {
+              const initials = w.name.split(" ").map((x: string) => x[0] ?? "").join("").slice(0, 2).toUpperCase();
+              const score = Math.min(5, Math.max(1, Math.round((w.revenue / maxWR) * 5)));
+              return (
+                <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "var(--bg-sunken)", borderRadius: "var(--r)" }}>
+                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: "var(--brand-50,#dbeafe)", color: "var(--brand)", display: "grid", placeItems: "center", fontWeight: 700, fontSize: 13, flexShrink: 0 }}>{initials}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.name}</div>
+                    <div style={{ fontSize: 11, color: "var(--ink-3)" }}>Официант</div>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{w.orders} заказов</div>
+                    <div style={{ fontSize: 11, color: "var(--ink-3)" }}>{fmtKZT(w.revenue)}</div>
+                    <div style={{ fontSize: 12, color: "#f59e0b", letterSpacing: 1 }}>{"★".repeat(score)}{"☆".repeat(5 - score)}</div>
+                  </div>
                 </div>
-                <div style={{ height: 6, background: "var(--bg-sunken)", borderRadius: 3, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${(cnt / maxCount) * 100}%`, background: "var(--brand)", borderRadius: 3 }} />
-                </div>
-              </div>
-            ))}
-            {topItems.length === 0 && <div style={{ color: "var(--ink-3)", fontSize: 13, textAlign: "center" }}>Нет данных</div>}
+              );
+            })}
+            {waiterRows.length === 0 && (
+              <div style={{ padding: 24, textAlign: "center", color: "var(--ink-3)", fontSize: 13 }}>Нет данных</div>
+            )}
           </div>
         </div>
       </div>
